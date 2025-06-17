@@ -1,0 +1,183 @@
+# ====================================================================
+# EUFY AUTOMATION SYSTEM - GIT IGNORE CONFIGURATION
+# ====================================================================
+
+# ====================================================================
+# SENSITIVE CONFIGURATION & CREDENTIALS
+# ====================================================================
+# Environment configuration with secrets
+.env
+.env.local
+.env.*.local
+
+# Google Service Account keys
+credentials/
+*.json
+!package*.json
+
+# SSL certificates and keys
+*.pem
+*.key
+*.crt
+*.cert
+
+# ====================================================================
+# APPLICATION DATA & LOGS
+# ====================================================================
+# Log files
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Runtime data
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# Application data and cache
+data/
+cache/
+.cache/
+
+# Eufy persistent data
+eufy-persistent/
+
+# ====================================================================
+# NODE.JS & NPM
+# ====================================================================
+# Dependencies
+node_modules/
+jspm_packages/
+
+# npm package lock files
+package-lock.json
+yarn.lock
+
+# npm cache
+.npm
+.yarn/cache
+.yarn/unplugged
+.yarn/build-state.yml
+.yarn/install-state.gz
+
+# Optional npm cache directory
+.npm
+
+# Optional eslint cache
+.eslintcache
+
+# ====================================================================
+# DEVELOPMENT & EDITOR FILES
+# ====================================================================
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Linux
+*~
+
+# ====================================================================
+# TESTING & COVERAGE
+# ====================================================================
+# Coverage directory used by tools like istanbul
+coverage/
+*.lcov
+
+# nyc test coverage
+.nyc_output
+
+# Jest coverage
+coverage/
+
+# ====================================================================
+# BUILD & DISTRIBUTION
+# ====================================================================
+# Distribution and build files
+dist/
+build/
+out/
+
+# ====================================================================
+# TEMPORARY FILES
+# ====================================================================
+# Temporary folders
+tmp/
+temp/
+
+# Runtime files
+*.tmp
+*.temp
+
+# ====================================================================
+# BACKUP FILES
+# ====================================================================
+# Backup files
+*.backup
+*.bak
+*.old
+
+# ====================================================================
+# DOCKER
+# ====================================================================
+# Docker files (if using Docker)
+.dockerignore
+Dockerfile.prod
+
+# ====================================================================
+# DOCUMENTATION BUILDS
+# ====================================================================
+# Documentation builds
+docs/build/
+
+# ====================================================================
+# MONITORING & ANALYTICS
+# ====================================================================
+# New Relic agent config
+newrelic_agent.log
+
+# ====================================================================
+# CUSTOM IGNORE PATTERNS
+# ====================================================================
+# Add any project-specific files to ignore below:
+
+# Test configuration files
+test-config.json
+test-credentials.json
+
+# Local development overrides
+local-*.js
+local-*.json
+
+# Deployment scripts with sensitive data
+deploy-*.sh
+deploy-*.js
+
+# Custom data exports
+exports/
+*.csv
+*.xlsx
+
+# ====================================================================
+# IMPORTANT NOTES:
+# ====================================================================
+# 1. Never commit .env files - they contain sensitive credentials
+# 2. Keep credentials/ directory completely private
+# 3. Be careful with log files - they may contain sensitive information
+# 4. Always review changes before committing sensitive repositories
+# ==================================================================== 

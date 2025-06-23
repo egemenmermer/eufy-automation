@@ -279,6 +279,56 @@ EXPOSE 3000
 CMD ["npm", "start"]
 ```
 
+## 🧪 Testing
+
+This project includes a comprehensive test suite that works without requiring real credentials or hardware. Perfect for development, CI/CD, and validation.
+
+### Quick Test Commands
+```bash
+npm test                    # Run all tests
+npm run test:unit          # Unit tests only
+npm run test:integration   # Integration tests only  
+npm run test:api           # API tests only
+npm run test:coverage      # Run with coverage report
+npm run test:watch         # Watch mode for development
+```
+
+### Test Documentation
+- **[Test Setup Guide](tests/setup.md)** - Quick start guide for running tests
+- **[Test Documentation](tests/README.md)** - Complete test suite documentation
+
+### What Gets Tested
+✅ **Unit Tests** - Configuration validation, environment handling  
+✅ **Integration Tests** - Full automation workflow with mock services  
+✅ **API Tests** - All HTTP endpoints and error handling  
+✅ **Mock Services** - Simulated Eufy hardware, Google Calendar, email
+
+### Test Features
+- 🧪 **Mock Services** - No real credentials required
+- ⚡ **Fast Execution** - No external API calls
+- 🔒 **Secure** - Tests never access real hardware
+- 📊 **Coverage Reports** - Detailed test coverage analysis
+- 🏃 **CI/CD Ready** - Designed for automated testing
+
+The test suite automatically detects missing credentials and switches to mock mode, allowing complete system validation without any external dependencies.
+
+### 🔧 **Real Testing Setup**
+Want to test with **real Google Calendar and Gmail** (without Eufy hardware)?
+
+```bash
+# Quick setup guide
+cat REAL_TESTING.md
+
+# Test your real credentials
+npm run test:real
+
+# Copy real test template
+cp env.real-test .env
+# Then edit .env with your credentials
+```
+
+See **[REAL_TESTING.md](REAL_TESTING.md)** for complete setup instructions with real Google Calendar API and Gmail SMTP (free setup, ~20 minutes).
+
 ## 🔧 Troubleshooting
 
 ### Common Issues

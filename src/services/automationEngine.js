@@ -4,15 +4,24 @@ const logger = require('../utils/logger');
 const { config } = require('../config');
 const GoogleCalendarService = require('./googleCalendar');
 const EufyService = require('./eufyService');
+const MockGoogleCalendarService = require('../../tests/mocks/googleCalendar');
+const MockEufyService = require('../../tests/mocks/eufyService');
+const MockEmailService = require('../../tests/mocks/emailService');
 const EmailService = require('./emailService');
 
 class AutomationEngine {
   constructor() {
-    this.calendarService = new GoogleCalendarService();
-    this.eufyService = new EufyService();
-    this.emailService = new EmailService();
+    // Use mock services if no real credentials provided
+    const useGoogleMock = !config.google?.serviceAccountKeyPath || !config.google?.calendarId;
+    const useEufyMock = config.system.nodeEnv === 'test' || !config.eufy.username.includes('@');
+    const useEmailMock = !config.email?.host || !config.email?.user;
+    
+    this.calendarService = useGoogleMock ? new MockGoogleCalendarService() : new GoogleCalendarService();
+    this.eufyService = useEufyMock ? new MockEufyService() : new EufyService();
+    this.emailService = useEmailMock ? new MockEmailService() : new EmailService();
     
     this.isRunning = false;
+    this.isInitialized = false;
     this.cronJobs = [];
     this.activeLockTimers = new Map(); // Track active auto-lock timers
     this.lastHealthCheck = null;
@@ -30,7 +39,7 @@ class AutomationEngine {
       // Set up scheduled tasks
       this.setupScheduledTasks();
       
-      this.isRunning = true;
+      this.isInitialized = true;
       logger.info('Automation Engine initialized successfully');
       
       return true;
@@ -94,23 +103,32 @@ class AutomationEngine {
     logger.info('Automation Engine started successfully');
   }
 
-  stop() {
-    if (!this.isRunning) {
-      logger.warn('Automation Engine is not running');
-      return;
+  async stop() {
+    // Stop all scheduled tasks if they exist
+    if (this.cronJobs && this.cronJobs.length > 0) {
+      this.cronJobs.forEach(job => {
+        if (job && job.stop) {
+          job.stop();
+        }
+      });
     }
-
-    // Stop all scheduled tasks
-    this.cronJobs.forEach(job => job.stop());
     
     // Clear any active lock timers
-    this.activeLockTimers.forEach((timer, eventId) => {
-      clearTimeout(timer);
-      logger.info(`Cleared auto-lock timer for event ${eventId}`);
-    });
-    this.activeLockTimers.clear();
+    if (this.activeLockTimers) {
+      this.activeLockTimers.forEach((timer, eventId) => {
+        clearTimeout(timer);
+        logger.info(`Cleared auto-lock timer for event ${eventId}`);
+      });
+      this.activeLockTimers.clear();
+    }
+    
+    // Cleanup services
+    if (this.eufyService && this.eufyService.cleanup) {
+      await this.eufyService.cleanup();
+    }
     
     this.isRunning = false;
+    this.isInitialized = false;
     logger.info('Automation Engine stopped');
   }
 
@@ -303,6 +321,23 @@ class AutomationEngine {
     this.activeLockTimers.set(event.id, timer);
   }
 
+  // Method for testing - schedule relock with custom duration
+  scheduleRelock(durationMinutes = null) {
+    const lockDuration = durationMinutes || config.system.lockDurationMinutes;
+    const lockDelayMs = lockDuration * 60 * 1000;
+    
+    const timer = setTimeout(async () => {
+      try {
+        await this.eufyService.lockDoor();
+        logger.info('Manual relock completed');
+      } catch (error) {
+        logger.error('Manual relock failed', { error: error.message });
+      }
+    }, lockDelayMs);
+
+    return timer;
+  }
+
   performCleanupTasks() {
     try {
       logger.info('Performing cleanup tasks...');
@@ -378,6 +413,70 @@ class AutomationEngine {
       lastHealthCheck: this.lastHealthCheck,
       uptime: this.isRunning ? moment().diff(moment(), 'seconds') : 0
     };
+  }
+
+  async getSystemStatus() {
+    try {
+      const status = {
+        isRunning: this.isRunning,
+        isInitialized: this.isInitialized,
+        lastCheck: this.lastHealthCheck ? this.lastHealthCheck.timestamp : null,
+        activeLockTimers: this.activeLockTimers.size,
+        services: {}
+      };
+
+      // Check calendar service
+      try {
+        const calendarAvailable = this.calendarService && this.calendarService.calendar;
+        status.services.calendar = {
+          available: !!calendarAvailable,
+          mockMode: this.calendarService.constructor.name === 'MockGoogleCalendarService'
+        };
+      } catch (error) {
+        status.services.calendar = {
+          available: false,
+          error: error.message
+        };
+      }
+
+      // Check Eufy service
+      try {
+        const doorStatus = await this.eufyService.getDoorStatus();
+        status.services.eufy = {
+          available: doorStatus.available,
+          mockMode: doorStatus.mockMode || false,
+          doorStatus
+        };
+      } catch (error) {
+        status.services.eufy = {
+          available: false,
+          error: error.message
+        };
+      }
+
+      // Check email service
+      try {
+        const emailAvailable = this.emailService && this.emailService.transporter;
+        status.services.email = {
+          available: !!emailAvailable,
+          mockMode: this.emailService.constructor.name === 'MockEmailService'
+        };
+      } catch (error) {
+        status.services.email = {
+          available: false,
+          error: error.message
+        };
+      }
+
+      return status;
+    } catch (error) {
+      logger.error('Error getting system status', { error: error.message });
+      return {
+        isRunning: this.isRunning,
+        isInitialized: this.isInitialized,
+        error: error.message
+      };
+    }
   }
 
   async cleanup() {

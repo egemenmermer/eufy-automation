@@ -200,19 +200,20 @@ class EufyService {
   async isLocked() {
     try {
       if (!this.smartLock) {
-        return null;
+        throw new Error('Smart lock not initialized');
       }
 
-      // This depends on the specific Eufy device API
-      // Some devices may have different property names
-      const lockStatus = this.smartLock.getPropertyValue('lockStatus') || 
-                        this.smartLock.getPropertyValue('state') ||
-                        this.smartLock.isLocked?.();
+      if (!this.isConnected) {
+        await this.connect();
+      }
+
+      const isLocked = await this.smartLock.isLocked();
+      logger.eufy('Door lock status checked', { isLocked });
       
-      return lockStatus;
+      return isLocked;
     } catch (error) {
-      logger.error('Error checking lock status', { error: error.message });
-      return null;
+      logger.error('Failed to check door lock status', { error: error.message });
+      throw error;
     }
   }
 
@@ -248,6 +249,149 @@ class EufyService {
     } catch (error) {
       logger.error('Error during Eufy service cleanup', { error: error.message });
     }
+  }
+
+  // New temporary code management functions for S330
+  async addTemporaryCode(code, name, startTime, endTime) {
+    try {
+      if (!this.smartLock) {
+        throw new Error('Smart lock not initialized');
+      }
+
+      if (!this.isConnected) {
+        logger.eufy('Not connected, attempting to reconnect...');
+        await this.connect();
+      }
+
+      // Validate code format (4-6 digits)
+      if (!/^\d{4,6}$/.test(code)) {
+        throw new Error('Code must be 4-6 digits');
+      }
+
+      logger.eufy('Adding temporary access code...', { 
+        code: code.substring(0, 2) + '****',
+        name,
+        startTime,
+        endTime
+      });
+
+      // For S330, use the addTemporaryCode method
+      // Note: Implementation depends on eufy-security-client API for S330
+      await this.smartLock.addTemporaryCode({
+        code: code,
+        name: name,
+        startTime: new Date(startTime),
+        endTime: new Date(endTime)
+      });
+
+      logger.eufy('Temporary access code added successfully');
+      logger.security('Temporary access code programmed', {
+        device: this.smartLock.getName(),
+        serial: this.smartLock.getSerial(),
+        codeName: name,
+        codePreview: code.substring(0, 2) + '****',
+        validFrom: startTime,
+        validUntil: endTime,
+        timestamp: new Date().toISOString()
+      });
+
+      return true;
+    } catch (error) {
+      logger.error('Failed to add temporary access code', { 
+        error: error.message,
+        codeName: name 
+      });
+      throw error;
+    }
+  }
+
+  async removeTemporaryCode(code, name) {
+    try {
+      if (!this.smartLock) {
+        throw new Error('Smart lock not initialized');
+      }
+
+      if (!this.isConnected) {
+        logger.eufy('Not connected, attempting to reconnect...');
+        await this.connect();
+      }
+
+      logger.eufy('Removing temporary access code...', { 
+        code: code.substring(0, 2) + '****',
+        name
+      });
+
+      // For S330, use the removeTemporaryCode method
+      await this.smartLock.removeTemporaryCode({
+        code: code,
+        name: name
+      });
+
+      logger.eufy('Temporary access code removed successfully');
+      logger.security('Temporary access code removed', {
+        device: this.smartLock.getName(),
+        serial: this.smartLock.getSerial(),
+        codeName: name,
+        codePreview: code.substring(0, 2) + '****',
+        timestamp: new Date().toISOString()
+      });
+
+      return true;
+    } catch (error) {
+      logger.error('Failed to remove temporary access code', { 
+        error: error.message,
+        codeName: name 
+      });
+      throw error;
+    }
+  }
+
+  async listTemporaryCodes() {
+    try {
+      if (!this.smartLock) {
+        throw new Error('Smart lock not initialized');
+      }
+
+      if (!this.isConnected) {
+        await this.connect();
+      }
+
+      const codes = await this.smartLock.getTemporaryCodes();
+      
+      logger.eufy('Retrieved temporary codes list', { 
+        count: codes?.length || 0 
+      });
+      
+      return codes || [];
+    } catch (error) {
+      logger.error('Failed to list temporary codes', { error: error.message });
+      throw error;
+    }
+  }
+
+  generateAccessCode(event) {
+    // Generate a 4-6 digit code (client prefers 4-6 digits)
+    // Use a deterministic but secure approach based on event data
+    const crypto = require('crypto');
+    
+    // Create hash from event data for consistency
+    const eventData = `${event.id}-${event.startTime}-${event.attendeeEmail}`;
+    const hash = crypto.createHash('sha256').update(eventData).digest('hex');
+    
+    // Extract 4 digits from hash and ensure it's not too predictable
+    const baseCode = parseInt(hash.substring(0, 8), 16) % 10000;
+    
+    // Ensure it's always 4 digits (pad with zeros if needed)
+    const code = baseCode.toString().padStart(4, '0');
+    
+    // Add extra validation to avoid weak codes
+    if (code === '0000' || code === '1234' || code === '1111') {
+      // Use a different part of the hash for weak codes
+      const altCode = parseInt(hash.substring(8, 16), 16) % 10000;
+      return altCode.toString().padStart(4, '0');
+    }
+    
+    return code;
   }
 }
 

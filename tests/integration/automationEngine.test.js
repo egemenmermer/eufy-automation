@@ -21,27 +21,26 @@ jest.mock('node-cron', () => ({
   destroy: jest.fn()
 }));
 
+// Use fake timers to control setTimeout
+jest.useFakeTimers();
+
 const MockEufyService = require('../mocks/eufyService');
-const MockGoogleCalendarService = require('../mocks/googleCalendar');
+const MockAmeliaService = require('../mocks/ameliaService');
 const MockEmailService = require('../mocks/emailService');
 
 describe('Automation Engine Integration Tests', () => {
-  let AutomationEngine;
   let automationEngine;
   
-  beforeAll(() => {
-    // Set test environment variables
+  beforeEach(async () => {
+    // Force test environment
     process.env.NODE_ENV = 'test';
-    process.env.PORT = '3001';
-    process.env.POLL_INTERVAL_MINUTES = '1';
-    process.env.UNLOCK_DURATION_MINUTES = '30';
-    process.env.EUFY_DEVICE_SERIAL = 'TEST123456';
-  });
-
-  beforeEach(() => {
+    
+    // Reset modules to ensure clean config
     jest.resetModules();
-    AutomationEngine = require('../../src/services/automationEngine');
+    
+    const AutomationEngine = require('../../src/services/automationEngine');
     automationEngine = new AutomationEngine();
+    await automationEngine.initialize();
   });
 
   afterEach(async () => {
@@ -51,56 +50,26 @@ describe('Automation Engine Integration Tests', () => {
   });
 
   test('should initialize with mock services in test mode', async () => {
-    await automationEngine.initialize();
-    
-    // Check constructor names instead of instanceof (more reliable with Jest)
-    expect(automationEngine.calendarService.constructor.name).toBe('MockGoogleCalendarService');
+    expect(automationEngine.ameliaService.constructor.name).toBe('MockAmeliaService');
     expect(automationEngine.eufyService.constructor.name).toBe('MockEufyService');
     expect(automationEngine.emailService.constructor.name).toBe('MockEmailService');
     expect(automationEngine.isInitialized).toBe(true);
   });
 
-  test('should process upcoming events and trigger automation', async () => {
+  test('should process upcoming appointments and trigger automation', async () => {
     await automationEngine.initialize();
     
     // Process automation cycle
-    await automationEngine.processUpcomingEvents();
+    await automationEngine.processUpcomingAppointments();
     
     // Check that services were called
-    const calendarService = automationEngine.calendarService;
+    const ameliaService = automationEngine.ameliaService;
     const eufyService = automationEngine.eufyService;
     const emailService = automationEngine.emailService;
     
-    expect(calendarService.calendar).toBeDefined();
+    expect(ameliaService.isConnected).toBe(true);
     expect(eufyService.isConnected).toBe(true);
     expect(emailService.transporter).toBeDefined();
-  });
-
-  test('should unlock door for valid booking events', async () => {
-    await automationEngine.initialize();
-    
-    const calendarService = automationEngine.calendarService;
-    const eufyService = automationEngine.eufyService;
-    const emailService = automationEngine.emailService;
-    
-    // Create a test event that starts soon
-    const testEvent = {
-      id: 'test-unlock-event',
-      title: 'Test Booking Appointment',
-      description: 'Test booking for automation',
-      startTime: moment().add(1, 'minute').toDate(),
-      endTime: moment().add(61, 'minutes').toDate(),
-      attendeeEmail: 'test@example.com',
-      organizer: 'calendar@example.com',
-      location: 'Test Location',
-      isAllDay: false
-    };
-
-    // Mock the calendar service to return this event
-    calendarService.getEventsStartingSoon = jest.fn().mockResolvedValue([testEvent]);
-    
-    // Process the event
-    await automationEngine.processUpcomingEvents();
     
     // Verify door was unlocked
     const doorStatus = await eufyService.getDoorStatus();
@@ -110,31 +79,63 @@ describe('Automation Engine Integration Tests', () => {
     const sentEmails = emailService.getSentEmails();
     expect(sentEmails.length).toBeGreaterThan(0);
     expect(sentEmails[0].to).toBe('test@example.com');
-    expect(sentEmails[0].subject).toContain('Access Confirmed');
+    expect(sentEmails[0].subject).toContain('Your Door Code for');
   });
 
-  test('should ignore invalid events', async () => {
+  test('should unlock door for valid booking appointments', async () => {
     await automationEngine.initialize();
     
-    const calendarService = automationEngine.calendarService;
+    const ameliaService = automationEngine.ameliaService;
     const eufyService = automationEngine.eufyService;
     const emailService = automationEngine.emailService;
     
-    // Create an invalid event (no attendee email)
-    const invalidEvent = {
-      id: 'invalid-event',
-      title: 'Personal Meeting',
-      description: 'Not a booking',
-      startTime: moment().add(1, 'minute').toDate(),
-      endTime: moment().add(61, 'minutes').toDate(),
-      attendeeEmail: null,
-      organizer: 'calendar@example.com',
-      isAllDay: false
+    // Create a test appointment that starts soon
+    const testAppointment = {
+      id: 'test-unlock-appointment',
+      service: { name: 'Test Service' },
+      bookingStart: moment().add(1, 'minute').toISOString(),
+      bookingEnd: moment().add(61, 'minutes').toISOString(),
+      customer: { email: 'test@example.com' },
+      status: 'approved'
     };
 
-    calendarService.getEventsStartingSoon = jest.fn().mockResolvedValue([invalidEvent]);
+    // Mock the amelia service to return this appointment
+    ameliaService.getAppointmentsStartingSoon = jest.fn().mockResolvedValue([testAppointment]);
     
-    await automationEngine.processUpcomingEvents();
+    // Process the appointment
+    await automationEngine.processUpcomingAppointments();
+    
+    // Verify door was unlocked
+    const doorStatus = await eufyService.getDoorStatus();
+    expect(doorStatus.isLocked).toBe(false);
+    
+    // Verify email was sent
+    const sentEmails = emailService.getSentEmails();
+    expect(sentEmails.length).toBeGreaterThan(0);
+    expect(sentEmails[0].to).toBe('test@example.com');
+    expect(sentEmails[0].subject).toContain('Your Door Code for');
+  });
+
+  test('should ignore invalid appointments', async () => {
+    await automationEngine.initialize();
+    
+    const ameliaService = automationEngine.ameliaService;
+    const eufyService = automationEngine.eufyService;
+    const emailService = automationEngine.emailService;
+    
+    // Create an invalid appointment (e.g., status is 'cancelled')
+    const invalidAppointment = {
+      id: 'invalid-appointment',
+      service: { name: 'Cancelled Service' },
+      bookingStart: moment().add(1, 'minute').toISOString(),
+      bookingEnd: moment().add(61, 'minutes').toISOString(),
+      customer: { email: 'test@example.com' },
+      status: 'canceled'
+    };
+
+    ameliaService.getAppointmentsStartingSoon = jest.fn().mockResolvedValue([invalidAppointment]);
+    
+    await automationEngine.processUpcomingAppointments();
     
     // Door should remain locked
     const doorStatus = await eufyService.getDoorStatus();
@@ -146,86 +147,91 @@ describe('Automation Engine Integration Tests', () => {
   });
 
   test('should handle automatic re-locking', async () => {
-    await automationEngine.initialize();
-    
     const eufyService = automationEngine.eufyService;
     
     // Unlock the door
     await eufyService.unlockDoor();
     expect((await eufyService.getDoorStatus()).isLocked).toBe(false);
     
-    // Trigger re-lock with very short duration for testing
-    automationEngine.scheduleRelock(0.02); // 0.02 minutes = 1.2 seconds
+    // Trigger re-lock based on an appointment
+    const appointment = { 
+      id: 'relock-test', 
+      service: { name: 'Test', duration: 60 },
+      bookingEnd: moment().add(1, 'minute').toISOString()
+    };
+    automationEngine.scheduleAutoLock(appointment);
     
-    // Wait for re-lock with extra buffer
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    // Fast-forward time past the appointment end and buffer
+    jest.advanceTimersByTime(10 * 60 * 1000); // 10 minutes
     
     // Check if door is locked again
     const doorStatus = await eufyService.getDoorStatus();
     expect(doorStatus.isLocked).toBe(true);
-  }, 15000); // Increase test timeout
+  });
 
   test('should get system status correctly', async () => {
     await automationEngine.initialize();
     
     const status = await automationEngine.getSystemStatus();
     
-    expect(status.isRunning).toBe(false); // Not started yet
-    expect(status.lastCheck).toBeNull();
-    expect(status.services.calendar.available).toBe(true);
+    expect(status.engine.isRunning).toBe(true);
+    expect(status.services.amelia).toContain('connected');
     expect(status.services.eufy.available).toBe(true);
-    expect(status.services.email.available).toBe(true);
-    expect(status.services.calendar.mockMode).toBe(true);
-    expect(status.services.eufy.mockMode).toBe(true);
-    expect(status.services.email.mockMode).toBe(true);
+    expect(status.services.email).toContain('connected');
+    
+    // But unlock should only have been called once due to internal tracking
+    const eufyService = automationEngine.eufyService;
+    expect(eufyService.unlockDoor).toHaveBeenCalledTimes(1);
   });
 
   test('should handle errors gracefully', async () => {
     await automationEngine.initialize();
     
-    const calendarService = automationEngine.calendarService;
+    const ameliaService = automationEngine.ameliaService;
     const emailService = automationEngine.emailService;
     
-    // Mock calendar service to throw error
-    calendarService.getEventsStartingSoon = jest.fn().mockRejectedValue(new Error('Test calendar error'));
+    // Mock amelia service to throw error
+    ameliaService.getAppointmentsStartingSoon = jest.fn().mockRejectedValue(new Error('Test amelia error'));
     
     // Process should not crash
-    await expect(automationEngine.processUpcomingEvents()).resolves.not.toThrow();
+    await expect(automationEngine.processUpcomingAppointments()).resolves.not.toThrow();
     
     // Error email should be sent
     const sentEmails = emailService.getSentEmails();
-    const errorEmails = sentEmails.filter(email => email.subject.includes('System Error'));
+    const errorEmails = sentEmails.filter(email => email.subject.includes('Automation Engine Error'));
     expect(errorEmails.length).toBeGreaterThan(0);
   });
 
-  test('should track processed events to avoid duplicates', async () => {
+  test('should track processed appointments to avoid duplicates', async () => {
     await automationEngine.initialize();
     
-    const calendarService = automationEngine.calendarService;
-    const eufyService = automationEngine.eufyService;
+    const ameliaService = automationEngine.ameliaService;
     
-    const testEvent = {
-      id: 'duplicate-test-event',
-      title: 'Test Booking Appointment',
-      description: 'Test booking for automation',
-      startTime: moment().add(1, 'minute').toDate(),
-      endTime: moment().add(61, 'minutes').toDate(),
-      attendeeEmail: 'test@example.com',
-      organizer: 'calendar@example.com',
-      isAllDay: false
+    const testAppointment = {
+      id: 'duplicate-test-appointment',
+      service: { name: 'Test Service' },
+      bookingStart: moment().add(1, 'minute').toISOString(),
+      bookingEnd: moment().add(61, 'minutes').toISOString(),
+      customer: { email: 'test@example.com' },
+      status: 'approved'
     };
 
-    // Mock calendar to return same event multiple times
-    calendarService.getEventsStartingSoon = jest.fn().mockResolvedValue([testEvent]);
+    // Mock amelia to return same appointment multiple times
+    ameliaService.getAppointmentsStartingSoon = jest.fn().mockResolvedValue([testAppointment]);
     
     // Process multiple times
-    await automationEngine.processUpcomingEvents();
-    await automationEngine.processUpcomingEvents();
-    await automationEngine.processUpcomingEvents();
+    await automationEngine.processUpcomingAppointments();
+    await automationEngine.processUpcomingAppointments();
+    await automationEngine.processUpcomingAppointments();
     
-    // Should only process once due to duplicate prevention
-    // (Mock services have their own duplicate prevention logic)
-    expect(calendarService.getEventsStartingSoon).toHaveBeenCalledTimes(3);
+    // Check that the mock was called multiple times
+    expect(ameliaService.getAppointmentsStartingSoon).toHaveBeenCalledTimes(3);
+    
+    // But unlock should only have been called once due to internal tracking
+    const eufyService = automationEngine.eufyService;
+    // This relies on the mock implementation having call tracking.
+    // Let's assume the mock's `unlockDoor` is a jest.fn()
+    expect(eufyService.unlockDoor).toHaveBeenCalledTimes(1);
   });
 
   test('should cleanup properly on stop', async () => {

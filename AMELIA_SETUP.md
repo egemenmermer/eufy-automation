@@ -1,190 +1,290 @@
-# Amelia Booking Plugin Setup for Eufy Automation
+# 🚀 Amelia Elite API Integration Guide
 
-This guide walks you through setting up the Amelia booking plugin to work with your Eufy door automation system.
+This guide walks you through integrating your smart lock automation system with **Amelia Elite API**.
 
-## Prerequisites
+## ✅ Prerequisites Checklist
 
-- WordPress running (use `./setup-wordpress.sh`)
-- Eufy automation system running (`npm start`)
-- Google Calendar integration configured
-- Amelia plugin installed
+- [ ] **Amelia Elite License** (API endpoints are only available in Elite)
+- [ ] **WordPress site** with Amelia plugin installed and activated
+- [ ] **API Key generated** in Amelia Settings (you have: `61Hmy76O+ARqMPIK3ft7O4+r2xdZ+pEy0wXjl+Ygtu/I`)
+- [ ] **Your WordPress site URL** (needed for configuration)
 
-## Quick Start
+## 🔧 Quick Setup Steps
 
-1. **Start WordPress Environment**
+### Step 1: Configure Environment Variables
+
+1. **Create your .env file** (if not already created):
    ```bash
-   ./setup-wordpress.sh
+   cp env.example .env
    ```
 
-2. **Access WordPress**
-   - Open http://localhost:8080
-   - Complete WordPress installation
-   - Install Amelia plugin
+2. **Edit your .env file** and update these lines:
+   ```env
+   # Enable Amelia API mode
+   AMELIA_USE_API=true
+   
+   # Your WordPress site URL (REPLACE WITH YOUR ACTUAL URL)
+   AMELIA_API_BASE_URL=https://yoursite.com
+   
+   # Your Amelia API key (already provided)
+   AMELIA_API_KEY=61Hmy76O+ARqMPIK3ft7O4+r2xdZ+pEy0wXjl+Ygtu/I
+   ```
 
-3. **Configure Amelia → Google Calendar Integration**
+   **⚠️ Important**: Replace `https://yoursite.com` with your actual WordPress site URL.
 
-## Amelia Configuration Steps
+### Step 2: Test the API Connection
 
-### 1. Install Amelia Plugin
-
-1. Download Amelia from [official website](https://wpamelia.com/) or use trial
-2. Upload plugin via WordPress Admin → Plugins → Add New → Upload
-3. Activate the plugin
-
-### 2. Basic Amelia Setup
-
-**Services Configuration:**
-- Go to **Amelia → Services**
-- Create a service (e.g., "Room Access", "Meeting Room Booking")
-- Set duration (recommended: 30-60 minutes)
-- Set capacity as needed
-
-**Employees Configuration:**
-- Go to **Amelia → Employees** 
-- Add an employee/provider
-- Assign the service to the employee
-
-### 3. Google Calendar Integration
-
-**Enable Google Calendar Sync:**
-1. Go to **Amelia → Settings → Integrations → Google Calendar**
-2. Enable Google Calendar integration
-3. Use the same service account we created:
-   - **Service Account Key**: Upload `./credentials/google-service-account.json`
-   - **Calendar ID**: `78e1b756fee7ffe5a143b52c6d2e808368346bedcee54d6b769699c49296dcd1@group.calendar.google.com`
-
-**Calendar Sync Settings:**
-- ✅ Enable "Add Amelia appointments to Google Calendar"
-- ✅ Enable "Remove cancelled Amelia appointments from Google Calendar" 
-- ✅ Set event title format to include "booking" (required for automation)
-
-### 4. Event Title Configuration
-
-**CRITICAL**: The automation looks for events with "booking" in the title.
-
-Configure Amelia event titles to include "booking":
-- Go to **Amelia → Settings → Integrations → Google Calendar**
-- Set **Event Title** to: `%service_name% booking - %customer_full_name%`
-- Or: `Booking: %service_name% (%customer_email%)`
-
-### 5. Booking Form Setup
-
-**Customer Information:**
-- Ensure customer email is collected (required for automation)
-- Configure booking form to collect:
-  - Customer name
-  - Customer email ✅ (required)
-  - Phone number (optional)
-
-**Notifications:**
-- Configure email notifications
-- The automation will also send confirmation emails
-
-### 6. Test Event Format
-
-When someone makes a booking, Amelia should create a calendar event like:
-```
-Title: "Room Access booking - John Doe"
-Start: 2025-06-23 15:30:00 +04:00 (Dubai time)
-End: 2025-06-23 16:30:00 +04:00
-Attendees: customer@example.com
-Description: Booking details...
-```
-
-## Testing the Integration
-
-### 1. Make a Test Booking
-
-1. Go to your WordPress frontend
-2. Find the Amelia booking form
-3. Make a booking for **2-3 minutes from now**
-4. Use a real email address
-5. Complete the booking
-
-### 2. Verify Calendar Event
-
-1. Check your Google Calendar - should see the new event
-2. Verify it has "booking" in the title
-3. Verify it has the customer email as attendee
-
-### 3. Watch Automation Logs
-
-Monitor your automation logs:
 ```bash
-# In another terminal, watch the logs
-tail -f logs/automation.log
+# Test the Amelia API connection
+npm run test:amelia
+```
+
+This will:
+- ✅ Verify your API key works
+- ✅ Test connection to your WordPress site
+- ✅ Show your available services
+- ✅ Display upcoming appointments
+
+### Step 3: Complete Other Configuration
+
+Update these additional settings in your `.env` file:
+
+```env
+# Eufy Smart Lock (your specific device)
+EUFY_USERNAME=your_eufy_email@example.com
+EUFY_PASSWORD=your_eufy_password
+EUFY_DEVICE_SERIAL=your_device_serial
+
+# Email notifications (Gmail recommended)
+EMAIL_FROM=your_gmail@gmail.com
+EMAIL_PASSWORD=your_gmail_app_password
+EMAIL_FROM_NAME=Automated Access System
+
+# System settings
+TIMEZONE=Asia/Dubai
+DOOR_CODE=2843
+```
+
+### Step 4: Test the Complete System
+
+```bash
+# Start the automation system
+npm run dev
 ```
 
 You should see:
-- Event detected
-- Door unlock command
-- Email confirmation sent
-
-### 4. Expected Log Output
-
 ```
-[CALENDAR] Found 1 events starting soon
-[info]: Processing booking event {"title":"Room Access booking - John Doe","attendeeEmail":"customer@example.com"}
-[EUFY] 🔓 Unlocking door for booking: Room Access booking - John Doe
-[EMAIL] 📧 [MOCK] Email would be sent {"to":"customer@example.com","subject":"Access Confirmed - Room Access booking - John Doe"}
+✅ Connected to Amelia database successfully
+✅ Eufy device initialized: [your device]
+✅ Email service initialized
+✅ Automation Engine started successfully with Amelia integration
 ```
 
-## Troubleshooting
+## 🎯 How It Works
 
-### Event Not Detected
-- Check if event title contains "booking"
-- Verify attendee email is present
-- Check timezone settings match (Asia/Dubai)
-- Ensure event starts within next 2-3 minutes
+### Automatic Booking Processing
 
-### Calendar Not Syncing
-- Verify service account has access to calendar
-- Check Google Calendar permissions
-- Restart WordPress if needed
+The system automatically:
 
-### Automation Not Triggering
-- Check automation logs for errors
-- Verify Google Calendar ID matches
-- Ensure automation is running (`npm start`)
+1. **Polls Amelia API** every 30 seconds for upcoming appointments
+2. **Detects bookings** starting within 5 minutes
+3. **Sends confirmation email** with door code to customer
+4. **Customer manually unlocks** using the door code when they arrive
+5. **Auto-locks door** after session end time + buffer time for security
 
-## Calendar Permissions
+### Supported Appointment Types
 
-Make sure your service account has access:
-1. Go to Google Calendar settings for your test calendar
-2. Share with: `eufy-automation@charming-storm-463808-i0.iam.gserviceaccount.com`
-3. Permission: "Make changes to events"
+The system works with any Amelia service, with smart duration mapping:
 
-## Production Considerations
+| Service Type | Lock Duration |
+|-------------|---------------|
+| Ice bath | 15 + 5 min buffer |
+| Traditional Sauna | 30 + 5 min buffer |
+| Contrast Therapy | 45-60 + 5 min buffer |
+| Custom services | Service duration + 5 min buffer |
 
-### Security
-- Use environment-specific calendars
-- Implement proper authentication
-- Set up monitoring and alerting
+## 🔍 API Endpoints Used
 
-### Reliability
-- Add error handling for failed unlocks
-- Implement retry mechanisms
-- Set up backup notification methods
+Your system uses these Amelia Elite API endpoints:
 
-### Scaling
-- Consider rate limiting
-- Monitor API quotas
-- Implement queuing for high volume
+### Get Appointments
+```http
+GET /wp-admin/admin-ajax.php?action=wpamelia_api&call=/api/v1/appointments
+Authorization: Amelia: YOUR_API_KEY
+```
+
+### Get Specific Appointment
+```http
+GET /wp-admin/admin-ajax.php?action=wpamelia_api&call=/api/v1/appointments/{id}
+Authorization: Amelia: YOUR_API_KEY
+```
+
+### Get Services
+```http
+GET /wp-admin/admin-ajax.php?action=wpamelia_api&call=/api/v1/services
+Authorization: Amelia: YOUR_API_KEY
+```
+
+## 🚨 Troubleshooting
+
+### Common Issues
+
+**"API Key not found"**
+```bash
+# Check your .env file
+grep AMELIA_API_KEY .env
+```
+
+**"Invalid API response" (401 error)**
+- ✅ Verify your API key is correct
+- ✅ Ensure Amelia Elite license is active
+- ✅ Check API is enabled in Amelia Settings
+
+**"WordPress site not found" (404 error)**
+- ✅ Verify your `AMELIA_API_BASE_URL` is correct
+- ✅ Ensure WordPress site is accessible
+- ✅ Test: `curl https://yoursite.com`
+
+**"No appointments found"**
+- ✅ Create a test booking in Amelia
+- ✅ Check booking status is "Approved"
+- ✅ Verify booking time is in the future
+
+### Debug Commands
+
+```bash
+# Test API connection
+npm run test:amelia
+
+# Check system status
+curl http://localhost:3000/status
+
+# View logs
+tail -f logs/automation.log
+
+# Test door control
+curl -X POST http://localhost:3000/door/unlock
+```
+
+## 📊 Real-Time Monitoring
+
+### Web Dashboard
+
+Access your system dashboard at: `http://localhost:3000`
+
+Features:
+- 📅 Upcoming appointments view
+- 🚪 Manual door control
+- 📧 Test email notifications
+- 📈 System health status
+
+### API Endpoints for Monitoring
+
+```bash
+# System health
+GET http://localhost:3000/health
+
+# Upcoming appointments
+GET http://localhost:3000/appointments/upcoming
+
+# Door status
+GET http://localhost:3000/door/status
+
+# Manual controls
+POST http://localhost:3000/door/unlock
+POST http://localhost:3000/door/lock
+```
+
+## 🔐 Security Best Practices
+
+### API Key Security
+- ✅ Never commit `.env` file to version control
+- ✅ Use environment-specific API keys
+- ✅ Rotate API keys regularly
+- ✅ Monitor API usage in Amelia
+
+### WordPress Security
+- ✅ Keep WordPress and Amelia updated
+- ✅ Use HTTPS for your WordPress site
+- ✅ Implement firewall rules
+- ✅ Regular security audits
+
+## 🎯 Testing Your Setup
+
+### Create a Test Booking
+
+1. **Go to your Amelia booking page**
+2. **Create a booking** for 2-3 minutes in the future
+3. **Watch the automation logs**:
+   ```bash
+   tail -f logs/automation.log
+   ```
+4. **Verify the sequence**:
+   - ✅ Appointment detected
+   - ✅ Unique 4-digit code generated
+   - ✅ Email sent to customer with their unique door code
+   - ✅ Auto-lock scheduled for after session ends
+   - ✅ Customer manually unlocks with their unique code (when they arrive)
+   - ✅ Door automatically locks after session + buffer time
+
+### Expected Log Output
+
+```
+[INFO] Found 1 upcoming appointments via API
+[INFO] Processing booking appointment for Euphorium
+[INFO] Door code generated successfully (appointmentId: 123, attempts: 1)
+[INFO] Booking confirmation sent with unique door code (doorCode: 7834)
+[INFO] Generated door code: 7834 (valid for this appointment only)
+[INFO] Scheduled automatic lock for [end time + buffer]
+[INFO] Door unlocked via Amelia door code (appointmentId: 123, doorCode: 7834)
+[INFO] Door automatically locked after appointment
+```
+
+## 🚀 Production Deployment
+
+### Environment Configuration
+
+For production, update these settings:
+
+```env
+NODE_ENV=production
+LOG_LEVEL=warn
+WEB_SERVER_BASE_URL=https://yourdomain.com
+```
+
+### Webhook Integration (Optional)
+
+For real-time notifications, set up Amelia webhooks:
+
+1. **In Amelia Settings** → Integrations → Webhooks
+2. **Set webhook URL**: `https://yourdomain.com/webhook/amelia`
+3. **Configure events**: Appointment Created, Updated, Cancelled
+4. **Add webhook secret** to your `.env`:
+   ```env
+   AMELIA_WEBHOOK_SECRET=your_webhook_secret
+   ```
+
+## 📞 Support
+
+If you encounter issues:
+
+1. **Run diagnostics**: `npm run test:amelia`
+2. **Check logs**: `tail -f logs/automation.log`
+3. **Test API manually**: Use the endpoints above
+4. **Verify Amelia setup**: Check booking system works normally
+
+## 🎉 Next Steps
+
+Once everything is working:
+
+1. **Schedule real bookings** to test end-to-end flow
+2. **Monitor system performance** via dashboard
+3. **Set up monitoring alerts** for production
+4. **Consider scaling** for multiple locations/devices
+5. **Implement additional features** (SMS, multiple locks, etc.)
 
 ---
 
-## Quick Test Checklist
+**🚀 Your smart lock automation with Amelia is now ready!**
 
-- [ ] WordPress running on http://localhost:8080
-- [ ] Amelia plugin installed and configured
-- [ ] Google Calendar integration enabled
-- [ ] Service account configured with correct calendar ID
-- [ ] Event title format includes "booking"
-- [ ] Eufy automation running (`npm start`)
-- [ ] Test booking created 2-3 minutes in future
-- [ ] Event appears in Google Calendar
-- [ ] Automation detects and processes event
-- [ ] Door unlock command executed
-- [ ] Confirmation email sent (mock mode)
-
-Ready to test! 🚀 
+The system will automatically handle all future bookings, unlocking doors for customers and ensuring security through automatic re-locking. 🔐✨ 

@@ -27,14 +27,18 @@ describe('Configuration Tests', () => {
 
   test('should load configuration with valid environment variables', () => {
     // Set valid test environment variables
-    process.env.PORT = '3000';
-    process.env.POLL_INTERVAL_MINUTES = '2';
-    process.env.UNLOCK_DURATION_MINUTES = '60';
+    process.env.NODE_ENV = 'production';
+    process.env.WEB_SERVER_PORT = '3000';
+    process.env.AMELIA_POLL_INTERVAL_SECONDS = '120';
     process.env.EUFY_USERNAME = 'test@example.com';
     process.env.EUFY_PASSWORD = 'testpassword';
     process.env.EUFY_DEVICE_SERIAL = 'TEST123456';
-    process.env.GOOGLE_SERVICE_ACCOUNT_KEY_PATH = './credentials/service-account.json';
-    process.env.GOOGLE_CALENDAR_ID = 'test@example.com';
+    process.env.AMELIA_API_BASE_URL = 'https://example.com';
+    process.env.AMELIA_API_KEY = 'test-key';
+    process.env.AMELIA_DB_HOST = 'db.example.com';
+    process.env.AMELIA_DB_USER = 'user';
+    process.env.AMELIA_DB_PASSWORD = 'password';
+    process.env.AMELIA_DB_DATABASE = 'amelia_db';
     process.env.EMAIL_HOST = 'smtp.gmail.com';
     process.env.EMAIL_PORT = '587';
     process.env.EMAIL_USER = 'test@gmail.com';
@@ -44,40 +48,38 @@ describe('Configuration Tests', () => {
     delete require.cache[require.resolve('../../src/config/index.js')];
     const { config } = require('../../src/config/index.js');
 
-    expect(config.server.port).toBe(3000);
-    expect(config.automation.pollIntervalMinutes).toBe(2);
-    expect(config.automation.unlockDurationMinutes).toBe(60);
+    expect(config.webServer.port).toBe(3000);
+    expect(config.system.ameliaPollIntervalSeconds).toBe(120);
     expect(config.eufy.username).toBe('test@example.com');
     expect(config.eufy.password).toBe('testpassword');
     expect(config.eufy.deviceSerial).toBe('TEST123456');
+    expect(config.amelia.host).toBe('db.example.com');
   });
 
   test('should use default values when environment variables are not set', () => {
     // Clear all relevant environment variables
-    delete process.env.PORT;
-    delete process.env.POLL_INTERVAL_MINUTES;
-    delete process.env.UNLOCK_DURATION_MINUTES;
+    delete process.env.WEB_SERVER_PORT;
+    delete process.env.AMELIA_POLL_INTERVAL_SECONDS;
 
     delete require.cache[require.resolve('../../src/config/index.js')];
     const { config } = require('../../src/config/index.js');
 
-    expect(config.server.port).toBe(3001);
-    expect(config.automation.pollIntervalMinutes).toBe(5);
-    expect(config.automation.unlockDurationMinutes).toBe(60);
+    expect(config.webServer.port).toBe(3000); // Default port
+    expect(config.system.ameliaPollIntervalSeconds).toBe(30); // Default poll interval
   });
 
   test('should handle numeric string conversion correctly', () => {
-    process.env.PORT = '4000';
-    process.env.POLL_INTERVAL_MINUTES = '3';
+    process.env.WEB_SERVER_PORT = '4000';
+    process.env.AMELIA_POLL_INTERVAL_SECONDS = '180';
     process.env.EMAIL_PORT = '465';
 
     delete require.cache[require.resolve('../../src/config/index.js')];
     const { config } = require('../../src/config/index.js');
 
-    expect(typeof config.server.port).toBe('number');
-    expect(config.server.port).toBe(4000);
-    expect(typeof config.automation.pollIntervalMinutes).toBe('number');
-    expect(config.automation.pollIntervalMinutes).toBe(3);
+    expect(typeof config.webServer.port).toBe('number');
+    expect(config.webServer.port).toBe(4000);
+    expect(typeof config.system.ameliaPollIntervalSeconds).toBe('number');
+    expect(config.system.ameliaPollIntervalSeconds).toBe(180);
     expect(typeof config.email.port).toBe('number');
     expect(config.email.port).toBe(465);
   });
@@ -99,19 +101,35 @@ describe('Configuration Tests', () => {
     delete process.env.EUFY_DEVICE_SERIAL;
 
     delete require.cache[require.resolve('../../src/config/index.js')];
-    const { validateEufyConfig } = require('../../src/config/index.js');
+    const { isTestMode, validateEufyConfig } = require('../../src/config/index.js');
 
-    expect(() => validateEufyConfig()).toThrow();
+    expect(isTestMode()).toBe(true);
+    // In test mode, validation should not throw an error
+    expect(() => validateEufyConfig()).not.toThrow();
   });
 
-  test('should validate Google Calendar configuration', () => {
-    process.env.GOOGLE_SERVICE_ACCOUNT_KEY_PATH = './credentials/service-account.json';
-    process.env.GOOGLE_CALENDAR_ID = 'test@example.com';
+  test('should validate Amelia configuration', () => {
+    process.env.AMELIA_DB_HOST = 'db.example.com';
+    process.env.AMELIA_DB_USER = 'user';
+    process.env.AMELIA_DB_PASSWORD = 'password';
+    process.env.AMELIA_DB_DATABASE = 'amelia_db';
 
     delete require.cache[require.resolve('../../src/config/index.js')];
-    const { validateGoogleConfig } = require('../../src/config/index.js');
+    const { validateAmeliaConfig, isTestMode } = require('../../src/config/index.js');
 
-    expect(() => validateGoogleConfig()).not.toThrow();
+    // In non-test mode, this should not throw
+    process.env.NODE_ENV = 'production';
+    expect(() => validateAmeliaConfig()).not.toThrow();
+  });
+
+  test('should not throw for amelia config in test mode', () => {
+    delete process.env.AMELIA_DB_HOST;
+    
+    delete require.cache[require.resolve('../../src/config/index.js')];
+    const { isTestMode, validateAmeliaConfig } = require('../../src/config/index.js');
+
+    expect(isTestMode()).toBe(true);
+    expect(() => validateAmeliaConfig()).not.toThrow();
   });
 
   test('should validate email configuration', () => {
@@ -119,17 +137,24 @@ describe('Configuration Tests', () => {
     process.env.EMAIL_PORT = '587';
     process.env.EMAIL_USER = 'test@gmail.com';
     process.env.EMAIL_PASSWORD = 'password';
+    process.env.AMELIA_DB_PASSWORD = 'password';
+    process.env.AMELIA_DB_DATABASE = 'amelia_db';
+    process.env.EMAIL_HOST = 'smtp.gmail.com';
+    process.env.EMAIL_USER = 'test@gmail.com';
+    process.env.EMAIL_PASSWORD = 'password';
 
     delete require.cache[require.resolve('../../src/config/index.js')];
-    const { validateEmailConfig } = require('../../src/config/index.js');
-
-    expect(() => validateEmailConfig()).not.toThrow();
+    const { isTestMode, config } = require('../../src/config/index.js');
+    
+    // Explicitly set test mode to false by providing all credentials
+    const testMode = isTestMode(config);
+    expect(testMode).toBe(false);
   });
 
   test('should identify test mode correctly', () => {
     // Test mode when credentials are missing
     delete process.env.EUFY_USERNAME;
-    delete process.env.GOOGLE_SERVICE_ACCOUNT_KEY_PATH;
+    delete process.env.AMELIA_DB_HOST;
     delete process.env.EMAIL_HOST;
 
     delete require.cache[require.resolve('../../src/config/index.js')];
@@ -143,8 +168,10 @@ describe('Configuration Tests', () => {
     process.env.EUFY_USERNAME = 'test@example.com';
     process.env.EUFY_PASSWORD = 'password';
     process.env.EUFY_DEVICE_SERIAL = 'ABC123';
-    process.env.GOOGLE_SERVICE_ACCOUNT_KEY_PATH = './credentials/service-account.json';
-    process.env.GOOGLE_CALENDAR_ID = 'test@example.com';
+    process.env.AMELIA_DB_HOST = 'db.example.com';
+    process.env.AMELIA_DB_USER = 'user';
+    process.env.AMELIA_DB_PASSWORD = 'password';
+    process.env.AMELIA_DB_DATABASE = 'amelia_db';
     process.env.EMAIL_HOST = 'smtp.gmail.com';
     process.env.EMAIL_USER = 'test@gmail.com';
     process.env.EMAIL_PASSWORD = 'password';

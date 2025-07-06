@@ -2,6 +2,7 @@ const nodemailer = require('nodemailer');
 const moment = require('moment');
 const logger = require('../utils/logger');
 const { config } = require('../config');
+const accessTokenManager = require('../utils/accessTokens');
 
 class EmailService {
   constructor() {
@@ -71,6 +72,39 @@ class EmailService {
         error: error.message,
         eventId: event.id,
         attendeeEmail: event.attendeeEmail
+      });
+      throw error;
+    }
+  }
+
+  async sendBookingConfirmation(confirmationData) {
+    try {
+      if (!confirmationData.customerEmail) {
+        throw new Error('No customer email found for appointment');
+      }
+
+      const emailData = {
+        to: confirmationData.customerEmail,
+        subject: `Welcome to Euphorium! ❄️ - ${confirmationData.service}`,
+        html: this.generateEuphoriumConfirmationHTML(confirmationData),
+        text: this.generateEuphoriumConfirmationText(confirmationData),
+      };
+
+      await this.sendEmail(emailData);
+      
+      logger.email('Euphorium booking confirmation sent', {
+        to: confirmationData.customerEmail,
+        service: confirmationData.service,
+        appointmentDate: confirmationData.appointmentDate,
+        startTime: confirmationData.startTime
+      });
+
+      return true;
+    } catch (error) {
+      logger.error('Failed to send booking confirmation', { 
+        error: error.message,
+        appointmentId: confirmationData.appointmentId,
+        customerEmail: confirmationData.customerEmail
       });
       throw error;
     }
@@ -168,6 +202,160 @@ REMINDERS:
 This is an automated message from the Access Management System.
 Generated at ${moment().format('YYYY-MM-DD HH:mm:ss')}
     `.trim();
+  }
+
+  generateEuphoriumConfirmationHTML(confirmationData) {
+    const moment = require('moment');
+    
+    return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <title>Welcome to Euphorium!</title>
+        <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; }
+            .header { text-align: center; margin-bottom: 30px; }
+            .section { margin: 20px 0; }
+            .code-box { background-color: #f0f8ff; border: 2px solid #007bff; padding: 15px; text-align: center; font-size: 18px; font-weight: bold; color: #007bff; border-radius: 5px; margin: 15px 0; }
+            .important { background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 10px; margin: 10px 0; }
+            .contact { background-color: #d4edda; border-left: 4px solid #28a745; padding: 10px; margin: 10px 0; }
+            ul { padding-left: 20px; }
+            .footer { text-align: center; font-size: 12px; color: #666; margin-top: 30px; border-top: 1px solid #ddd; padding-top: 15px; }
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <h1>Welcome to Euphorium! ❄️</h1>
+        </div>
+        
+        <div class="section">
+            <h2>📱 Before Your Visit</h2>
+            <p><strong>Send a "Hi" on WhatsApp:</strong> <a href="https://wa.me/971559021829">+971-559021829</a> → so we can assist you if needed (No staff on-site).</p>
+            <p><strong>Must-Read 2 min Guide:</strong> (Late policies, facility use, tub temps, and ice bath/sauna instructions)</p>
+        </div>
+
+        <div class="section">
+            <h2>🚪 Door Code</h2>
+            <div class="code-box">
+                ${confirmationData.doorCode}
+            </div>
+            <p><strong>Use it to unlock the door at ${confirmationData.startTime}.</strong></p>
+            <p>The door stays locked until then and remains closed during your session.</p>
+            <p>Use the same code to lock (pull the door toward you).</p>
+        </div>
+
+        <div class="section">
+            <h2>⏰ Your Session</h2>
+            <ul>
+                <li><strong>Service:</strong> ${confirmationData.service}</li>
+                <li><strong>Date:</strong> ${confirmationData.appointmentDate}</li>
+                <li><strong>Start:</strong> ${confirmationData.startTime}</li>
+                <li><strong>End:</strong> ${confirmationData.endTime}</li>
+                <li><strong>Duration:</strong> ${confirmationData.duration} min</li>
+            </ul>
+            <p><strong>Late arrivals = lost time. No extensions unless you rebook.</strong></p>
+        </div>
+
+        <div class="important">
+            <h3>📋 Important Policies</h3>
+            <p><strong>Late Arrivals:</strong> Late arrivals cannot be extended unless an additional session is booked, subject to availability.</p>
+        </div>
+
+        <div class="section">
+            <h3>⏱️ Session Times</h3>
+            <ul>
+                <li>Ice Bath: 15</li>
+                <li>Sauna: 30</li>
+                <li>Combined: 45</li>
+            </ul>
+        </div>
+
+        <div class="section">
+            <h2>🚗 Getting Here & Access Information</h2>
+            
+            <h3>If You're Driving:</h3>
+            <p><strong>Park at:</strong></p>
+            <ul>
+                <li>Visitor Parking (by the Al Sufouh Suites building) – Security can guide you</li>
+                <li>P2 Basement Parking #25 (call security for gate access: Night: +971 55 764 9059 | Day: +971 56 648 4972)</li>
+                <li>Nearby Street Parking <a href="#">Google Maps Pin 1</a>, <a href="#">Google Maps Pin 2</a></li>
+            </ul>
+
+            <h3>If You're Not Driving:</h3>
+            <p>Enter through the main building entrance and take the lift to P2.</p>
+            <p>Follow the same path: Exit the double doors → Turn Right → Find the <strong>BRIGHT BLUE DOOR</strong> near parking spot #25.</p>
+        </div>
+
+        <div class="contact">
+            <h3>🗺️ Need Directions?</h3>
+            <p>Watch our drive-through videos: <a href="#">Gate 1</a> | <a href="#">Gate 2</a></p>
+            <p><strong>Bathrooms:</strong> Press 'A' in the elevator</p>
+        </div>
+
+        <div class="footer">
+            <p><strong>100% Self-Service | No Staff On-Site</strong></p>
+            <p>Euphorium</p>
+            <p><em>Automated booking confirmation generated at ${moment().format('YYYY-MM-DD HH:mm:ss')}</em></p>
+        </div>
+    </body>
+    </html>
+    `;
+  }
+
+  generateEuphoriumConfirmationText(confirmationData) {
+    const moment = require('moment');
+    
+    return `
+Welcome to Euphorium! ❄️
+
+📱 Before Your Visit
+Send a "Hi" on WhatsApp: +971-559021829 → so we can assist you if needed (No staff on-site).
+Must-Read 2 min Guide: (Late policies, facility use, tub temps, and ice bath/sauna instructions)
+
+🚪 Door Code: ${confirmationData.doorCode}
+Use it to unlock the door at ${confirmationData.startTime}.
+The door stays locked until then and remains closed during your session.
+Use the same code to lock (pull the door toward you).
+
+⏰ Your Session
+• Service: ${confirmationData.service}
+• Date: ${confirmationData.appointmentDate}
+• Start: ${confirmationData.startTime}
+• End: ${confirmationData.endTime}
+• Duration: ${confirmationData.duration} min
+Late arrivals = lost time. No extensions unless you rebook.
+
+📋 Important Policies
+
+Late Arrivals: Late arrivals cannot be extended unless an additional session is booked, subject to availability.
+
+⏱️ Session Times
+Ice Bath: 15
+Sauna: 30
+Combined: 45
+
+🚗 Getting Here & Access Information
+
+If You're Driving:
+Park at:
+Visitor Parking (by the Al Sufouh Suites building) – Security can guide you
+P2 Basement Parking #25 (call security for gate access: Night: +971 55 764 9059 | Day: +971 56 648 4972)
+Nearby Street Parking Google Maps Pin 1, Google Maps Pin 2
+
+If You're Not Driving:
+Enter through the main building entrance and take the lift to P2.
+Follow the same path: Exit the double doors → Turn Right → Find the BRIGHT BLUE DOOR near parking spot #25.
+
+🗺️ Need Directions?
+Watch our drive-through videos: Gate 1 | Gate 2
+🚻 Bathrooms: Press 'A' in the elevator
+
+100% Self-Service | No Staff On-Site
+Euphorium
+
+Automated booking confirmation generated at ${moment().format('YYYY-MM-DD HH:mm:ss')}
+    `;
   }
 
   async sendEmail(emailData) {

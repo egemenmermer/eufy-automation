@@ -1,46 +1,57 @@
 const cron = require('node-cron');
-const moment = require('moment');
+const moment = require('moment-timezone');
 const logger = require('../utils/logger');
-const { config } = require('../config');
-const GoogleCalendarService = require('./googleCalendar');
+const { config, getLockDurationForService } = require('../config');
+const AmeliaService = require('./ameliaService');
 const EufyService = require('./eufyService');
-const MockGoogleCalendarService = require('../../tests/mocks/googleCalendar');
+const MockAmeliaService = require('../../tests/mocks/ameliaService');
 const MockEufyService = require('../../tests/mocks/eufyService');
 const MockEmailService = require('../../tests/mocks/emailService');
 const EmailService = require('./emailService');
+const WebServer = require('./webServer');
+const doorCodeGenerator = require('../utils/doorCodeGenerator');
 
 class AutomationEngine {
   constructor() {
-    // Use mock services if no real credentials provided
-    const useGoogleMock = !config.google?.serviceAccountKeyPath || !config.google?.calendarId;
-    const useEufyMock = config.system.nodeEnv === 'test' || !config.eufy.username.includes('@');
-    const useEmailMock = !config.email?.host || !config.email?.user;
+    const isTest = config.system.nodeEnv === 'test';
     
-    this.calendarService = useGoogleMock ? new MockGoogleCalendarService() : new GoogleCalendarService();
+    // Use mock services if in test mode OR if real credentials are not provided
+    const useAmeliaMock = isTest || !config.amelia?.host || !config.amelia?.user || !config.amelia?.password;
+    const useEufyMock = isTest || !config.eufy.username || !config.eufy.password;
+    const useEmailMock = isTest || !config.email?.host || !config.email?.user;
+    
+    this.ameliaService = useAmeliaMock ? new MockAmeliaService() : new AmeliaService();
     this.eufyService = useEufyMock ? new MockEufyService() : new EufyService();
     this.emailService = useEmailMock ? new MockEmailService() : new EmailService();
+    this.webServer = new WebServer(this);
     
     this.isRunning = false;
     this.isInitialized = false;
     this.cronJobs = [];
     this.activeLockTimers = new Map(); // Track active auto-lock timers
+    this.processedAppointments = new Set(); // Track processed appointments to avoid duplicates
     this.lastHealthCheck = null;
   }
 
   async initialize() {
     try {
-      logger.info('Initializing Automation Engine...');
+      logger.info('Initializing Automation Engine with Amelia integration...');
       
-      // Initialize all services
-      await this.calendarService.initialize();
-      await this.eufyService.initialize();
-      await this.emailService.initialize();
+      // Initialize all services in parallel
+      await Promise.all([
+        this.ameliaService.connect(),
+        this.eufyService.initialize(),
+        this.emailService.initialize()
+      ]);
+      
+      // Now that services are ready, start the web server
+      await this.webServer.start();
       
       // Set up scheduled tasks
       this.setupScheduledTasks();
       
       this.isInitialized = true;
-      logger.info('Automation Engine initialized successfully');
+      logger.info('Automation Engine initialized successfully with Amelia integration');
       
       return true;
     } catch (error) {
@@ -60,10 +71,10 @@ class AutomationEngine {
   }
 
   setupScheduledTasks() {
-    // Main calendar polling task - runs every minute
-    const calendarCronPattern = `*/${config.system.calendarPollIntervalSeconds} * * * * *`;
-    const calendarJob = cron.schedule(calendarCronPattern, () => {
-      this.processUpcomingEvents();
+    // Main Amelia polling task - runs every 30 seconds
+    const ameliaCronPattern = `*/${config.system.ameliaPollIntervalSeconds} * * * * *`;
+    const ameliaJob = cron.schedule(ameliaCronPattern, () => {
+      this.processUpcomingAppointments();
     }, {
       scheduled: false
     });
@@ -82,10 +93,10 @@ class AutomationEngine {
       scheduled: false
     });
 
-    this.cronJobs = [calendarJob, cleanupJob, healthCheckJob];
+    this.cronJobs = [ameliaJob, cleanupJob, healthCheckJob];
     
-    logger.info('Scheduled tasks configured', {
-      calendarPollInterval: `${config.system.calendarPollIntervalSeconds} seconds`,
+    logger.info('Scheduled tasks configured for Amelia', {
+      ameliaPollInterval: `${config.system.ameliaPollIntervalSeconds} seconds`,
       tasksCount: this.cronJobs.length
     });
   }
@@ -100,7 +111,7 @@ class AutomationEngine {
     this.cronJobs.forEach(job => job.start());
     this.isRunning = true;
     
-    logger.info('Automation Engine started successfully');
+    logger.info('Automation Engine started successfully with Amelia integration');
   }
 
   async stop() {
@@ -115,14 +126,23 @@ class AutomationEngine {
     
     // Clear any active lock timers
     if (this.activeLockTimers) {
-      this.activeLockTimers.forEach((timer, eventId) => {
+      this.activeLockTimers.forEach((timer, appointmentId) => {
         clearTimeout(timer);
-        logger.info(`Cleared auto-lock timer for event ${eventId}`);
+        logger.info(`Cleared auto-lock timer for appointment ${appointmentId}`);
       });
       this.activeLockTimers.clear();
     }
     
+    // Stop web server
+    if (this.webServer) {
+      await this.webServer.stop();
+    }
+    
     // Cleanup services
+    if (this.ameliaService) {
+      await this.ameliaService.disconnect();
+    }
+    
     if (this.eufyService && this.eufyService.cleanup) {
       await this.eufyService.cleanup();
     }
@@ -132,29 +152,30 @@ class AutomationEngine {
     logger.info('Automation Engine stopped');
   }
 
-  async processUpcomingEvents() {
+  async processUpcomingAppointments() {
     try {
-      // Get events starting soon (within 2 minutes)
-      const upcomingEvents = await this.calendarService.getEventsStartingSoon(2);
+      // Get appointments starting soon (within 5 minutes)
+      const upcomingAppointments = await this.ameliaService.getAppointmentsStartingSoon(5);
       
-      for (const event of upcomingEvents) {
-        if (this.calendarService.isValidBookingEvent(event)) {
-          await this.handleBookingEvent(event);
-        } else {
-          logger.calendar('Skipping non-booking event', {
-            title: event.title,
-            startTime: event.startTime,
-            reason: 'Not a valid booking event'
-          });
+      for (const appointment of upcomingAppointments) {
+        // Check if we've already processed this appointment
+        const appointmentKey = `${appointment.id}_${appointment.startTime.unix()}`;
+        
+        if (!this.processedAppointments.has(appointmentKey)) {
+          await this.handleBookingAppointment(appointment);
+          this.processedAppointments.add(appointmentKey);
+          
+          // Clean up old processed appointments (older than 24 hours)
+          this.cleanupProcessedAppointments();
         }
       }
     } catch (error) {
-      logger.error('Error processing upcoming events', { error: error.message });
+      logger.error('Error processing upcoming appointments', { error: error.message });
       
       // Send error notification for critical failures
       try {
         await this.emailService.sendErrorNotification(error, {
-          context: 'Processing Upcoming Events',
+          context: 'Processing Upcoming Appointments',
           timestamp: new Date().toISOString()
         });
       } catch (emailError) {
@@ -163,197 +184,241 @@ class AutomationEngine {
     }
   }
 
-  async handleBookingEvent(event) {
+  async handleBookingAppointment(appointment) {
     try {
-      logger.info('Processing booking event', {
-        title: event.title,
-        attendeeEmail: event.attendeeEmail,
-        startTime: event.startTime,
-        endTime: event.endTime
+      logger.info('Processing booking appointment for Euphorium', {
+        appointmentId: appointment.id,
+        service: appointment.service,
+        customerName: appointment.customer.fullName,
+        customerEmail: appointment.customer.email,
+        startTime: appointment.startTimeFormatted,
+        endTime: appointment.endTimeFormatted,
+        duration: appointment.actualDuration
       });
 
-      // Step 1: Unlock the door
-      await this.unlockDoor(event);
+      // Determine lock duration based on service type and actual appointment duration
+      const lockDurationMinutes = this.calculateLockDuration(appointment);
       
-      // Step 2: Send confirmation email
-      await this.sendAccessConfirmation(event);
+      // Step 1: Send Euphorium booking confirmation email with door code
+      // Customer will manually use the door code to unlock when they arrive
+      await this.sendBookingConfirmation(appointment);
       
-      // Step 3: Schedule auto-lock (if configured)
-      this.scheduleAutoLock(event);
+      // Step 2: Schedule automatic re-lock after session ends + buffer time
+      // This ensures the door locks automatically after the session for security
+      this.scheduleAutoLock(appointment);
       
-      logger.info('Booking event processed successfully', {
-        eventId: event.id,
-        title: event.title,
-        attendeeEmail: event.attendeeEmail
+      // Step 3: Add note to appointment in Amelia
+      await this.ameliaService.addAppointmentNote(
+        appointment.id, 
+        `Unique door code generated and sent to customer. Auto-lock scheduled after ${lockDurationMinutes} minutes from session start.`
+      );
+      
+      logger.info('Booking appointment processed successfully', {
+        appointmentId: appointment.id,
+        service: appointment.service,
+        customerEmail: appointment.customer.email,
+        lockDuration: lockDurationMinutes,
+        workflow: 'Manual unlock with door code, automatic lock'
       });
 
     } catch (error) {
-      logger.error('Error handling booking event', { 
-        error: error.message,
-        eventId: event.id,
-        title: event.title,
-        attendeeEmail: event.attendeeEmail
+      logger.error('Error handling booking appointment', {
+        appointmentId: appointment?.id,
+        error: error.message
       });
       
-      // Send error notification with event context
+      // Send error notification
       try {
         await this.emailService.sendErrorNotification(error, {
-          context: 'Handling Booking Event',
-          event: {
-            id: event.id,
-            title: event.title,
-            attendeeEmail: event.attendeeEmail,
-            startTime: event.startTime
-          }
+          context: 'Handling Booking Appointment',
+          appointmentId: appointment?.id,
+          customerEmail: appointment?.customer?.email
         });
       } catch (emailError) {
         logger.error('Failed to send error notification', { error: emailError.message });
       }
-    }
-  }
-
-  async unlockDoor(event) {
-    try {
-      logger.info('Unlocking door for event', { eventId: event.id, title: event.title });
       
-      await this.eufyService.unlockDoor();
-      
-      logger.info('Door unlocked successfully for event', { 
-        eventId: event.id,
-        title: event.title,
-        attendeeEmail: event.attendeeEmail
-      });
-
-    } catch (error) {
-      logger.error('Failed to unlock door', { 
-        error: error.message,
-        eventId: event.id,
-        title: event.title
-      });
       throw error;
     }
   }
 
-  async sendAccessConfirmation(event) {
+  /**
+   * Calculate lock duration based on service type and appointment duration
+   */
+  calculateLockDuration(appointment) {
+    // Get base duration from service configuration
+    const baseDuration = getLockDurationForService(appointment.service);
+    
+    // Use actual appointment duration if it's longer than the configured service duration
+    const actualDuration = appointment.actualDuration + config.automation.bufferTimeMinutes;
+    
+    // Use the longer of the two durations
+    const lockDuration = Math.max(baseDuration, actualDuration);
+    
+    logger.info('Calculated lock duration', {
+      service: appointment.service,
+      baseDuration,
+      actualDuration: appointment.actualDuration,
+      bufferTime: config.automation.bufferTimeMinutes,
+      finalLockDuration: lockDuration
+    });
+    
+    return lockDuration;
+  }
+
+  // Note: Automatic unlock is disabled - customers use door codes manually
+  // async scheduleUnlock(appointment) {
+  //   // This method is no longer used as customers manually unlock with door codes
+  //   // Keeping as reference for potential future use
+  // }
+
+  async sendBookingConfirmation(appointment) {
     try {
-      logger.email('Sending access confirmation', { 
-        eventId: event.id,
-        attendeeEmail: event.attendeeEmail 
+      // Generate unique door code for this appointment
+      const doorCode = doorCodeGenerator.generateCode(appointment.id.toString(), {
+        length: 4 // 4-digit codes for simplicity
       });
+
+      // Create confirmation data
+      const confirmationData = {
+        customerName: appointment.customer.fullName,
+        customerEmail: appointment.customer.email,
+        service: appointment.service,
+        appointmentDate: appointment.dateFormatted,
+        startTime: appointment.startTimeFormatted,
+        endTime: appointment.endTimeFormatted,
+        duration: appointment.actualDuration,
+        doorCode: doorCode, // Use generated random code
+        location: 'Euphorium Wellness Center',
+        notes: appointment.description || '',
+        appointmentId: appointment.id
+      };
+
+      await this.emailService.sendBookingConfirmation(confirmationData);
       
-      await this.emailService.sendAccessConfirmation(event);
+      // Store the door code in appointment notes for reference
+      await this.ameliaService.addAppointmentNote(
+        appointment.id,
+        `Generated door code: ${doorCode} (valid for this appointment only)`
+      );
       
-      logger.email('Access confirmation sent successfully', { 
-        eventId: event.id,
-        attendeeEmail: event.attendeeEmail
+      logger.info('Booking confirmation sent with unique door code', {
+        appointmentId: appointment.id,
+        customerEmail: appointment.customer.email,
+        service: appointment.service,
+        doorCode: doorCode
       });
 
     } catch (error) {
-      logger.error('Failed to send access confirmation', { 
-        error: error.message,
-        eventId: event.id,
-        attendeeEmail: event.attendeeEmail
+      logger.error('Error sending booking confirmation', {
+        appointmentId: appointment.id,
+        customerEmail: appointment.customer?.email,
+        error: error.message
       });
       
-      // Don't throw here - email failure shouldn't prevent door access
-      // but we should log it as a warning
-      logger.warn('Continuing despite email failure - door access granted');
+      // Don't throw - email failure shouldn't stop the process
     }
   }
 
-  scheduleAutoLock(event) {
-    if (config.system.lockDurationMinutes <= 0) {
-      logger.info('Auto-lock disabled (duration = 0)');
+  scheduleAutoLock(appointment) {
+    if (!appointment || !appointment.bookingEnd) {
+      logger.warn('Auto-lock schedule skipped: missing appointment or booking end time');
       return;
     }
 
-    const lockDelayMs = config.system.lockDurationMinutes * 60 * 1000;
-    const lockTime = moment().add(config.system.lockDurationMinutes, 'minutes');
+    // Calculate when to lock: appointment end time + buffer time
+    const lockTime = moment(appointment.bookingEnd).add(getLockDurationForService(appointment.service.name), 'minutes');
+    const now = moment().tz(config.system.timezone);
+    const timeUntilLock = lockTime.diff(now, 'milliseconds');
     
-    logger.info('Scheduling auto-lock', {
-      eventId: event.id,
-      lockInMinutes: config.system.lockDurationMinutes,
-      lockTime: lockTime.format('YYYY-MM-DD HH:mm:ss')
-    });
-
-    // Clear any existing timer for this event
-    if (this.activeLockTimers.has(event.id)) {
-      clearTimeout(this.activeLockTimers.get(event.id));
-    }
-
-    // Set new timer
+    // Ensure we don't schedule a lock in the past
+    const lockDelayMs = Math.max(timeUntilLock, 60000); // At least 1 minute from now
+    
     const timer = setTimeout(async () => {
       try {
-        logger.info('Executing scheduled auto-lock', { eventId: event.id });
         await this.eufyService.lockDoor();
         
-        logger.info('Auto-lock completed successfully', { 
-          eventId: event.id,
-          title: event.title
+        logger.info('Door automatically locked after appointment', {
+          appointmentId: appointment.id,
+          service: appointment.service,
+          lockTime: lockTime.format('YYYY-MM-DD HH:mm:ss'),
+          bufferMinutes: config.automation.bufferTimeMinutes
         });
         
         // Remove timer from active timers
-        this.activeLockTimers.delete(event.id);
+        this.activeLockTimers.delete(appointment.id);
+        
+        // Add note to appointment
+        await this.ameliaService.addAppointmentNote(
+          appointment.id,
+          `Door automatically locked at ${lockTime.format('HH:mm')} (${config.automation.bufferTimeMinutes} min after session end).`
+        );
         
       } catch (error) {
-        logger.error('Auto-lock failed', { 
-          error: error.message,
-          eventId: event.id,
-          title: event.title
+        logger.error('Error during automatic lock', {
+          appointmentId: appointment.id,
+          error: error.message
         });
-        
-        // Send error notification for auto-lock failure
-        try {
-          await this.emailService.sendErrorNotification(error, {
-            context: 'Auto-lock Execution',
-            event: {
-              id: event.id,
-              title: event.title,
-              scheduledLockTime: lockTime.toISOString()
-            }
-          });
-        } catch (emailError) {
-          logger.error('Failed to send auto-lock error notification', { error: emailError.message });
-        }
       }
     }, lockDelayMs);
-
-    this.activeLockTimers.set(event.id, timer);
+    
+    this.activeLockTimers.set(appointment.id, timer);
+    
+    logger.info('Scheduled automatic lock', {
+      appointmentId: appointment.id,
+      lockTime: lockTime.format('YYYY-MM-DD HH:mm:ss'),
+      appointmentEndTime: appointment.bookingEnd.format('YYYY-MM-DD HH:mm:ss'),
+      bufferMinutes: config.automation.bufferTimeMinutes,
+      minutesFromNow: Math.round(lockDelayMs / 60000)
+    });
   }
 
-  // Method for testing - schedule relock with custom duration
-  scheduleRelock(durationMinutes = null) {
-    const lockDuration = durationMinutes || config.system.lockDurationMinutes;
-    const lockDelayMs = lockDuration * 60 * 1000;
+  cleanupProcessedAppointments() {
+    const cutoffTime = moment().subtract(24, 'hours').unix();
+    const toRemove = [];
     
-    const timer = setTimeout(async () => {
-      try {
-        await this.eufyService.lockDoor();
-        logger.info('Manual relock completed');
-      } catch (error) {
-        logger.error('Manual relock failed', { error: error.message });
+    for (const appointmentKey of this.processedAppointments) {
+      // Extract timestamp from appointment key
+      const timestamp = parseInt(appointmentKey.split('_')[1]);
+      if (timestamp < cutoffTime) {
+        toRemove.push(appointmentKey);
       }
-    }, lockDelayMs);
-
-    return timer;
+    }
+    
+    toRemove.forEach(key => this.processedAppointments.delete(key));
+    
+    if (toRemove.length > 0) {
+      logger.info(`Cleaned up ${toRemove.length} old processed appointments`);
+    }
   }
 
   performCleanupTasks() {
     try {
       logger.info('Performing cleanup tasks...');
       
-      // Clean up old processed events
-      this.calendarService.cleanupProcessedEvents();
+      // Clean up old processed appointments
+      this.cleanupProcessedAppointments();
       
-      // Clean up expired lock timers (shouldn't happen, but just in case)
-      const now = moment();
-      this.activeLockTimers.forEach((timer, eventId) => {
-        // If timer is older than 2 hours, clear it
-        // This is a safety mechanism - normally timers should self-clean
+      // Clear any expired lock timers
+      const now = Date.now();
+      const expiredTimers = [];
+      
+      for (const [appointmentId, timer] of this.activeLockTimers) {
+        // If timer is very old (more than 24 hours), consider it expired
+        if (timer._idleStart && (now - timer._idleStart > 24 * 60 * 60 * 1000)) {
+          expiredTimers.push(appointmentId);
+        }
+      }
+      
+      expiredTimers.forEach(appointmentId => {
+        clearTimeout(this.activeLockTimers.get(appointmentId));
+        this.activeLockTimers.delete(appointmentId);
+        logger.info(`Cleared expired lock timer for appointment ${appointmentId}`);
       });
       
       logger.info('Cleanup tasks completed', {
-        activeLockTimers: this.activeLockTimers.size
+        activeTimers: this.activeLockTimers.size,
+        processedAppointments: this.processedAppointments.size
       });
       
     } catch (error) {
@@ -365,17 +430,36 @@ class AutomationEngine {
     try {
       const healthStatus = {
         timestamp: new Date().toISOString(),
-        isRunning: this.isRunning,
-        activeLockTimers: this.activeLockTimers.size,
-        services: {}
+        engine: {
+          isRunning: this.isRunning,
+          isInitialized: this.isInitialized,
+          activeTimers: this.activeLockTimers.size,
+          processedAppointments: this.processedAppointments.size
+        },
+        services: {},
+        database: {}
       };
 
-      // Check Eufy service health
+      // Check Amelia database connection
       try {
-        const doorStatus = await this.eufyService.getDoorStatus();
+        const testAppointments = await this.ameliaService.getUpcomingAppointments(1);
+        healthStatus.database.amelia = {
+          status: 'connected',
+          upcomingAppointments: testAppointments.length
+        };
+      } catch (error) {
+        healthStatus.database.amelia = {
+          status: 'error',
+          error: error.message
+        };
+      }
+
+      // Check Eufy service
+      try {
+        const deviceStatus = await this.eufyService.getStatus();
         healthStatus.services.eufy = {
-          status: doorStatus.available ? 'healthy' : 'unhealthy',
-          details: doorStatus
+          status: 'connected',
+          deviceStatus: deviceStatus
         };
       } catch (error) {
         healthStatus.services.eufy = {
@@ -384,22 +468,28 @@ class AutomationEngine {
         };
       }
 
-      // Check calendar service (basic check)
-      healthStatus.services.calendar = {
-        status: this.calendarService.calendar ? 'healthy' : 'unhealthy'
-      };
-
-      // Check email service (basic check)
-      healthStatus.services.email = {
-        status: this.emailService.transporter ? 'healthy' : 'unhealthy'
-      };
+      // Check Email service
+      try {
+        await this.emailService.testConnection();
+        healthStatus.services.email = { status: 'connected' };
+      } catch (error) {
+        healthStatus.services.email = {
+          status: 'error',
+          error: error.message
+        };
+      }
 
       this.lastHealthCheck = healthStatus;
       
-      logger.info('Health check completed', {
-        overallStatus: Object.values(healthStatus.services).every(s => s.status === 'healthy') ? 'healthy' : 'degraded',
-        details: healthStatus
-      });
+      // Log health status
+      const overallHealth = Object.values(healthStatus.services).every(service => service.status === 'connected') &&
+                           healthStatus.database.amelia?.status === 'connected';
+      
+      if (overallHealth) {
+        logger.info('Health check passed', healthStatus);
+      } else {
+        logger.warn('Health check failed', healthStatus);
+      }
 
     } catch (error) {
       logger.error('Error during health check', { error: error.message });
@@ -409,89 +499,45 @@ class AutomationEngine {
   getStatus() {
     return {
       isRunning: this.isRunning,
-      activeLockTimers: this.activeLockTimers.size,
-      lastHealthCheck: this.lastHealthCheck,
-      uptime: this.isRunning ? moment().diff(moment(), 'seconds') : 0
+      isInitialized: this.isInitialized,
+      activeTimers: this.activeLockTimers.size,
+      lastHealthCheck: this.lastHealthCheck
     };
   }
 
   async getSystemStatus() {
     try {
       const status = {
-        isRunning: this.isRunning,
-        isInitialized: this.isInitialized,
-        lastCheck: this.lastHealthCheck ? this.lastHealthCheck.timestamp : null,
-        activeLockTimers: this.activeLockTimers.size,
-        services: {}
+        engine: this.getStatus(),
+        services: {
+          amelia: await this.ameliaService.getUpcomingAppointments(2).then(() => 'connected').catch(e => `error: ${e.message}`),
+          eufy: await this.eufyService.getStatus().then(s => s).catch(e => `error: ${e.message}`),
+          email: await this.emailService.testConnection().then(() => 'connected').catch(e => `error: ${e.message}`)
+        },
+        appointments: {
+          upcoming: await this.ameliaService.getUpcomingAppointments(24).catch(() => []),
+          active: await this.ameliaService.getCurrentlyActiveAppointments().catch(() => [])
+        },
+        configuration: {
+          timezone: config.system.timezone,
+          doorCode: config.system.doorCode,
+          pollInterval: config.system.ameliaPollIntervalSeconds,
+          bufferTime: config.automation.bufferTimeMinutes
+        }
       };
-
-      // Check calendar service
-      try {
-        const calendarAvailable = this.calendarService && this.calendarService.calendar;
-        status.services.calendar = {
-          available: !!calendarAvailable,
-          mockMode: this.calendarService.constructor.name === 'MockGoogleCalendarService'
-        };
-      } catch (error) {
-        status.services.calendar = {
-          available: false,
-          error: error.message
-        };
-      }
-
-      // Check Eufy service
-      try {
-        const doorStatus = await this.eufyService.getDoorStatus();
-        status.services.eufy = {
-          available: doorStatus.available,
-          mockMode: doorStatus.mockMode || false,
-          doorStatus
-        };
-      } catch (error) {
-        status.services.eufy = {
-          available: false,
-          error: error.message
-        };
-      }
-
-      // Check email service
-      try {
-        const emailAvailable = this.emailService && this.emailService.transporter;
-        status.services.email = {
-          available: !!emailAvailable,
-          mockMode: this.emailService.constructor.name === 'MockEmailService'
-        };
-      } catch (error) {
-        status.services.email = {
-          available: false,
-          error: error.message
-        };
-      }
 
       return status;
     } catch (error) {
       logger.error('Error getting system status', { error: error.message });
       return {
-        isRunning: this.isRunning,
-        isInitialized: this.isInitialized,
-        error: error.message
+        error: error.message,
+        engine: this.getStatus()
       };
     }
   }
 
   async cleanup() {
-    try {
-      logger.info('Cleaning up Automation Engine...');
-      
-      this.stop();
-      
-      // Cleanup services
-      await this.eufyService.cleanup();
-      
-      logger.info('Automation Engine cleanup completed');
-    } catch (error) {
-      logger.error('Error during Automation Engine cleanup', { error: error.message });
-    }
+    await this.stop();
   }
 }
 

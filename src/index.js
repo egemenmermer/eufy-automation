@@ -38,12 +38,13 @@ async function main() {
       await startApiServer();
     }
     
-    logger.info('🎉 Eufy Automation System is running!');
+    logger.info('🎉 Eufy Automation System with Amelia integration is running!');
     logger.info('System Details:', {
       nodeEnv: config.system.nodeEnv,
-      calendarPollInterval: `${config.system.calendarPollIntervalSeconds} seconds`,
-      lockDuration: `${config.system.lockDurationMinutes} minutes`,
-      timezone: config.system.timezone
+      ameliaPollInterval: `${config.system.ameliaPollIntervalSeconds} seconds`,
+      bufferTime: `${config.automation.bufferTimeMinutes} minutes`,
+      timezone: config.system.timezone,
+      doorCode: config.system.doorCode
     });
     
   } catch (error) {
@@ -87,9 +88,10 @@ async function startApiServer() {
         },
         door: eufyStatus,
         config: {
-          lockDurationMinutes: config.system.lockDurationMinutes,
-          calendarPollIntervalSeconds: config.system.calendarPollIntervalSeconds,
-          timezone: config.system.timezone
+          ameliaPollIntervalSeconds: config.system.ameliaPollIntervalSeconds,
+          bufferTimeMinutes: config.automation.bufferTimeMinutes,
+          timezone: config.system.timezone,
+          doorCode: config.system.doorCode
         },
         timestamp: new Date().toISOString()
       });
@@ -138,32 +140,34 @@ async function startApiServer() {
     }
   });
   
-  // Get upcoming events endpoint
-  app.get('/events/upcoming', async (req, res) => {
+  // Get upcoming appointments endpoint
+  app.get('/appointments/upcoming', async (req, res) => {
     try {
       if (!automationEngine) {
         return res.status(503).json({ error: 'Automation engine not initialized' });
       }
       
-      const timeWindow = parseInt(req.query.timeWindow) || 60; // Default 60 minutes
-      const events = await automationEngine.calendarService.getUpcomingEvents(timeWindow);
+      const hoursAhead = parseInt(req.query.hoursAhead) || 24; // Default 24 hours
+      const appointments = await automationEngine.ameliaService.getUpcomingAppointments(hoursAhead);
       
       res.json({
-        events: events.map(event => ({
-          id: event.id,
-          title: event.title,
-          startTime: event.startTime,
-          endTime: event.endTime,
-          attendeeEmail: event.attendeeEmail,
-          location: event.location,
-          isValidBooking: automationEngine.calendarService.isValidBookingEvent(event)
+        appointments: appointments.map(appointment => ({
+          id: appointment.id,
+          service: appointment.service,
+          customerName: appointment.customer.fullName,
+          customerEmail: appointment.customer.email,
+          startTime: appointment.startTimeFormatted,
+          endTime: appointment.endTimeFormatted,
+          date: appointment.dateFormatted,
+          duration: appointment.actualDuration,
+          status: appointment.status
         })),
-        timeWindow: timeWindow,
+        hoursAhead: hoursAhead,
         timestamp: new Date().toISOString()
       });
     } catch (error) {
-      logger.error('Error getting upcoming events', { error: error.message });
-      res.status(500).json({ error: 'Failed to get upcoming events' });
+      logger.error('Error getting upcoming appointments', { error: error.message });
+      res.status(500).json({ error: 'Failed to get upcoming appointments' });
     }
   });
   

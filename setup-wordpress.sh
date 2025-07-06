@@ -11,11 +11,11 @@ fi
 
 # Stop any existing containers
 echo "🧹 Cleaning up existing containers..."
-docker-compose down
+docker compose down
 
 # Start the services
 echo "🚀 Starting WordPress, MySQL, and phpMyAdmin..."
-docker-compose up -d
+docker compose up -d
 
 # Wait for services to be ready
 echo "⏳ Waiting for services to start..."
@@ -58,8 +58,8 @@ echo "4. Connect Amelia to your Google Calendar"
 echo "5. Test booking flow with automation"
 echo ""
 echo "💡 Tips:"
-echo "   - Use 'docker-compose logs wordpress' to see WordPress logs"
-echo "   - Use 'docker-compose down' to stop all services"
+echo "   - Use 'docker compose logs wordpress' to see WordPress logs"
+echo "   - Use 'docker compose down' to stop all services"
 echo "   - Plugin files can be added to ./wordpress-plugins/ directory"
 echo ""
 echo "🔗 Integration with Eufy Automation:"

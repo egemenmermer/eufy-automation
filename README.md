@@ -1,396 +1,245 @@
-# 🔐 Smart Lock Automation with Google Calendar + Eufy Integration
+# Eufy Smart Lock Automation with WordPress Amelia Integration
 
-A fully automated, real-time door access control system that connects WordPress booking systems (like Amelia) with Google Calendar and Eufy smart locks using Node.js.
+Automated smart lock system that directly integrates with WordPress Amelia booking plugin to unlock doors for scheduled appointments. Designed specifically for businesses like wellness centers, co-working spaces, therapy rooms, and fitness studios.
 
-## 🌟 Overview
+## 🎯 Overview
 
-This system allows users to book appointments through a website, which syncs to Google Calendar. A background service monitors these bookings and at the appropriate time, automatically unlocks a designated Eufy smart lock, sends access confirmation emails, and optionally re-locks the door after a specified duration.
+This system monitors the WordPress Amelia database for upcoming appointments and automatically:
+- Unlocks smart locks when appointments start
+- Sends professional email confirmations with access details
+- Automatically re-locks doors after session completion + buffer time
+- Adjusts lock times based on service type and duration (15min, 30min, 60min, etc.)
+- Logs all activities and provides health monitoring
 
-Perfect for service-based businesses such as:
-- 🏢 Co-working spaces
-- 🏥 Therapy and massage rooms  
-- 🏋️ Fitness studios
-- 🏠 Private offices and consultation rooms
-- 🏘️ Airbnb and short-term rentals
+## ✨ Key Features
 
-## ✨ Features
+### 🔒 Smart Lock Integration
+- **Eufy Security Integration**: Direct control of Eufy smart locks
+- **Dynamic Lock Duration**: Adjusts based on appointment service type
+- **Session-Based Timing**: 15min (Ice bath), 30min (Sauna), 45-60min (Combined)
+- **Buffer Time**: Configurable extra time after appointments
 
-### 📅 Google Calendar Integration
-- Polls Google Calendar every 60 seconds (configurable)
-- Secure Service Account authentication
-- Extracts event details: title, attendee email, timing
-- Intelligent event filtering for booking validation
+### 📅 WordPress Amelia Integration
+- **Direct Database Access**: Connects directly to WordPress/Amelia MySQL database
+- **Real-Time Monitoring**: Polls for new appointments every 30 seconds
+- **Service Type Detection**: Recognizes different service types and durations
+- **Appointment Tracking**: Prevents duplicate processing
 
-### 🔐 Eufy Smart Lock Control
-- Full integration with `eufy-security-client` library
-- Automatic device discovery and connection
-- Real-time lock/unlock commands
-- Battery level monitoring and status reporting
-- Robust error handling and reconnection logic
+### 📧 Email Notifications
+- **Professional Templates**: Branded Euphorium email templates
+- **Access Information**: Includes door codes and session details
+- **Multi-Format**: Both HTML and text versions
+- **Error Notifications**: Admin alerts for system issues
 
-### 📬 Automated Email Notifications
-- Beautiful HTML email templates
-- Branded confirmation emails with booking details
-- Access instructions and facility guidelines
-- Error notifications for administrators
-- Powered by Nodemailer + Gmail SMTP
-
-### 🕒 Advanced Scheduling & Logic
-- Continuous background monitoring with node-cron
-- Memory-safe event processing to prevent duplicates
-- Configurable auto-lock timers
-- Comprehensive logging and audit trails
-- Health monitoring and system status reporting
-
-### 🛡️ Security & Reliability
-- Environment-based configuration management
-- Google Service Account with least-privilege permissions
-- Secure credential storage
-- Graceful error handling and recovery
-- Production-ready logging with Winston
-
-## 🛠️ Tech Stack
-
-| Component | Technology |
-|-----------|------------|
-| **Backend** | Node.js with Express |
-| **Calendar** | Google Calendar API v3 |
-| **Smart Lock** | eufy-security-client |
-| **Scheduling** | node-cron |
-| **Email** | Nodemailer + Gmail SMTP |
-| **Logging** | Winston |
-| **Config** | dotenv |
+### 🔧 Robust System Design
+- **Health Monitoring**: Continuous system health checks
+- **Error Recovery**: Graceful error handling and recovery
+- **Logging**: Comprehensive logging with Winston
+- **API Endpoints**: RESTful API for monitoring and control
 
 ## 🚀 Quick Start
 
-### Prerequisites
+### 1. Prerequisites
+- Node.js 18+ 
+- MySQL database access (WordPress/Amelia)
+- Eufy smart lock and account
+- Gmail account for notifications
 
-1. **Node.js** (v16 or higher)
-2. **Eufy Security Account** with registered smart lock
-3. **Google Cloud Project** with Calendar API enabled
-4. **Gmail Account** with App Password enabled
+### 2. Installation
+```bash
+git clone <repository-url>
+cd eufy-automation
+npm install
+```
 
-### Installation
+### 3. Configuration
+Copy the environment template:
+```bash
+cp env.example .env
+```
 
-1. **Clone and Install**
-   ```bash
-   git clone <repository-url>
-   cd eufy-automation
-   npm install
-   ```
+Configure your `.env` file with:
 
-2. **Environment Configuration**
-   ```bash
-   # Copy the example environment file
-   cp .env.example .env
-   
-   # Edit .env with your credentials
-   nano .env
-   ```
-
-3. **Google Service Account Setup**
-   - Create a new Google Cloud Project
-   - Enable Google Calendar API
-   - Create a Service Account
-   - Download the JSON key file
-   - Save it as `./credentials/google-service-account.json`
-   - Share your calendar with the service account email
-
-4. **Gmail Configuration**
-   - Enable 2-Factor Authentication on your Gmail account
-   - Generate an App Password for the application
-   - Use this App Password in your `.env` file
-
-### Configuration
-
-Edit your `.env` file with the following required settings:
-
+#### Eufy Configuration
 ```env
-# Eufy Security Credentials
 EUFY_USERNAME=your_eufy_email@example.com
 EUFY_PASSWORD=your_eufy_password
-EUFY_DEVICE_SERIAL=your_lock_serial_number
-
-# Google Calendar API
-GOOGLE_SERVICE_ACCOUNT_KEY_PATH=./credentials/google-service-account.json
-GOOGLE_CALENDAR_ID=your_calendar_id@group.calendar.google.com
-
-# Email Configuration (Gmail SMTP)
-EMAIL_FROM=your_email@gmail.com
-EMAIL_PASSWORD=your_app_specific_password
-EMAIL_FROM_NAME=Automated Access System
-
-# System Configuration
-LOCK_DURATION_MINUTES=5
-CALENDAR_POLL_INTERVAL_SECONDS=60
-TIMEZONE=America/New_York
-
-# Optional: API Server
-ENABLE_API=true
-PORT=3000
+EUFY_DEVICE_SERIAL=your_device_serial_number
 ```
 
-### Running the System
-
-**Development Mode:**
-```bash
-npm run dev
+#### WordPress/Amelia Database
+```env
+AMELIA_DB_HOST=localhost
+AMELIA_DB_PORT=3306
+AMELIA_DB_USER=your_db_username
+AMELIA_DB_PASSWORD=your_db_password
+AMELIA_DB_NAME=your_wordpress_database_name
+AMELIA_TABLE_PREFIX=wp_
 ```
 
-**Production Mode:**
+#### Email Configuration
+```env
+EMAIL_HOST=smtp.gmail.com
+EMAIL_PORT=587
+EMAIL_USER=your_gmail@gmail.com
+EMAIL_PASSWORD=your_app_password
+EMAIL_FROM=your_gmail@gmail.com
+EMAIL_FROM_NAME=Euphorium Access System
+```
+
+#### System Settings
+```env
+TIMEZONE=Asia/Dubai
+DOOR_CODE=2843
+AMELIA_POLL_INTERVAL_SECONDS=30
+BUFFER_TIME_MINUTES=5
+```
+
+### 4. Start the System
 ```bash
 npm start
 ```
 
-The system will:
-1. ✅ Validate configuration
-2. 🔌 Connect to Eufy and Google services
-3. 📧 Initialize email service
-4. ⏰ Start monitoring calendar events
-5. 🌐 Launch API server (if enabled)
+## 📊 Service Duration Mapping
 
-## 📚 API Endpoints
+The system automatically adjusts lock duration based on appointment service type:
 
-When the API server is enabled, you can monitor and control the system:
+| Service Type | Base Duration | Lock Duration* |
+|-------------|---------------|----------------|
+| Ice bath | 15 min | 20 min |
+| Traditional Sauna | 30 min | 35 min |
+| Traditional sauna and Ice bath | 45 min | 50 min |
+| Chill Club: 15-Min Daily Ice Bath Access | 15 min | 20 min |
+| Communal - Contrast Therapy | 30 min | 35 min |
+| Private - Contrast Therapy | 60 min | 65 min |
 
-### System Status
-```bash
-# Health check
-curl http://localhost:3000/health
+*Lock duration = Service duration + Buffer time (5 min default)
 
-# Detailed status
-curl http://localhost:3000/status
-```
+## 🔗 API Endpoints
 
-### Door Control
-```bash
-# Manual unlock (emergency/testing)
-curl -X POST http://localhost:3000/door/unlock
+### System Health
+- `GET /health` - Basic health check
+- `GET /status` - Detailed system status
 
-# Manual lock
-curl -X POST http://localhost:3000/door/lock
-```
+### Appointments
+- `GET /appointments/upcoming?hoursAhead=24` - View upcoming appointments
 
-### Calendar Events
-```bash
-# View upcoming events
-curl http://localhost:3000/events/upcoming?timeWindow=60
-```
+### Door Control (Manual)
+- `POST /door/unlock` - Manually unlock door
+- `POST /door/lock` - Manually lock door
 
 ### System Control
+- `POST /system/stop` - Stop automation engine
+- `POST /system/start` - Start automation engine
+
+## 🏗️ Architecture
+
+### Core Services
+- **AmeliaService**: Direct WordPress/Amelia database integration
+- **EufyService**: Smart lock control and management
+- **EmailService**: Professional email notifications
+- **AutomationEngine**: Main orchestration and scheduling
+- **WebServer**: API endpoints and health monitoring
+
+### Database Integration
+The system connects directly to the WordPress database and queries these Amelia tables:
+- `wp_amelia_appointments` - Main appointment data
+- `wp_amelia_services` - Service definitions and durations
+- `wp_amelia_customer_bookings` - Customer booking details
+- `wp_amelia_users` - Customer information
+
+### Flow Overview
+1. **Monitor**: Continuously polls Amelia database for upcoming appointments
+2. **Process**: Identifies appointments starting soon (within 5 minutes)
+3. **Unlock**: Schedules/executes door unlock at appointment start time
+4. **Notify**: Sends email confirmation with access details
+5. **Lock**: Automatically re-locks door after service duration + buffer
+6. **Track**: Logs all activities and updates appointment notes
+
+## 🛠️ Development
+
+### Testing
 ```bash
-# Stop automation
-curl -X POST http://localhost:3000/system/stop
+# Run all tests
+npm test
 
-# Start automation
-curl -X POST http://localhost:3000/system/start
+# Run specific test suites
+npm run test:unit
+npm run test:integration
+
+# Test with coverage
+npm run test:coverage
 ```
 
-## 🔧 How It Works
-
-### Workflow Overview
-
-1. **📝 Booking Creation**
-   - Customer books appointment via WordPress + Amelia
-   - Booking automatically syncs to Google Calendar
-   - Event includes customer email and appointment details
-
-2. **📡 Event Detection**
-   - System polls Google Calendar every 60 seconds
-   - Identifies events starting within 2-3 minutes
-   - Validates events as legitimate bookings
-
-3. **🔓 Automatic Access**
-   - Unlocks Eufy smart lock at scheduled time
-   - Sends confirmation email to customer
-   - Schedules automatic re-lock after configurable duration
-
-4. **📊 Monitoring & Logging**
-   - Comprehensive logging of all actions
-   - Health checks every 5 minutes
-   - Error notifications to administrators
-
-### Event Validation Logic
-
-The system considers an event a valid booking if it:
-- Has an attendee email address
-- Contains booking/appointment keywords
-- Is not an all-day event
-- Attendee hasn't declined the invitation
-
-## 🏗️ Project Structure
-
-```
-eufy-automation/
-├── src/
-│   ├── config/           # Configuration management
-│   ├── services/         # Core business logic
-│   │   ├── googleCalendar.js    # Google Calendar integration
-│   │   ├── eufyService.js       # Eufy smart lock control
-│   │   ├── emailService.js      # Email notifications
-│   │   └── automationEngine.js  # Main orchestration logic
-│   ├── utils/            # Utilities and helpers
-│   │   └── logger.js     # Winston logging configuration
-│   └── index.js          # Application entry point
-├── credentials/          # Service account keys (gitignored)
-├── logs/                 # Application logs (gitignored)
-├── data/                 # Persistent data (gitignored)
-├── package.json          # Dependencies and scripts
-└── README.md            # This file
-```
-
-## 🔒 Security Considerations
-
-- **Environment Variables**: All sensitive data stored in `.env`
-- **Service Account**: Google access uses least-privilege service account
-- **Audit Logging**: All door access attempts logged with timestamps
-- **Error Handling**: Graceful failure modes prevent security breaches
-- **Access Control**: Optional API authentication can be added
-
-## 🚀 Deployment Options
-
-### Option 1: Railway
+### Development Mode
 ```bash
-# Deploy to Railway (recommended)
-npm install -g @railway/cli
-railway login
-railway init
-railway up
+npm run dev
 ```
 
-### Option 2: VPS/Server
-```bash
-# Using PM2 for process management
-npm install -g pm2
-pm2 start src/index.js --name eufy-automation
-pm2 startup
-pm2 save
-```
+### Mock Services
+When real credentials aren't available, the system automatically uses mock services for testing:
+- Mock Amelia database with sample appointments
+- Mock Eufy service for door control simulation
+- Mock email service for notification testing
 
-### Option 3: Docker
-```dockerfile
-# Dockerfile (create if needed)
-FROM node:18-alpine
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci --only=production
-COPY . .
-EXPOSE 3000
-CMD ["npm", "start"]
-```
-
-## 🧪 Testing
-
-This project includes a comprehensive test suite that works without requiring real credentials or hardware. Perfect for development, CI/CD, and validation.
-
-### Quick Test Commands
-```bash
-npm test                    # Run all tests
-npm run test:unit          # Unit tests only
-npm run test:integration   # Integration tests only  
-npm run test:api           # API tests only
-npm run test:coverage      # Run with coverage report
-npm run test:watch         # Watch mode for development
-```
-
-### Test Documentation
-- **[Test Setup Guide](tests/setup.md)** - Quick start guide for running tests
-- **[Test Documentation](tests/README.md)** - Complete test suite documentation
-
-### What Gets Tested
-✅ **Unit Tests** - Configuration validation, environment handling  
-✅ **Integration Tests** - Full automation workflow with mock services  
-✅ **API Tests** - All HTTP endpoints and error handling  
-✅ **Mock Services** - Simulated Eufy hardware, Google Calendar, email
-
-### Test Features
-- 🧪 **Mock Services** - No real credentials required
-- ⚡ **Fast Execution** - No external API calls
-- 🔒 **Secure** - Tests never access real hardware
-- 📊 **Coverage Reports** - Detailed test coverage analysis
-- 🏃 **CI/CD Ready** - Designed for automated testing
-
-The test suite automatically detects missing credentials and switches to mock mode, allowing complete system validation without any external dependencies.
-
-### 🔧 **Real Testing Setup**
-Want to test with **real Google Calendar and Gmail** (without Eufy hardware)?
-
-```bash
-# Quick setup guide
-cat REAL_TESTING.md
-
-# Test your real credentials
-npm run test:real
-
-# Copy real test template
-cp env.real-test .env
-# Then edit .env with your credentials
-```
-
-See **[REAL_TESTING.md](REAL_TESTING.md)** for complete setup instructions with real Google Calendar API and Gmail SMTP (free setup, ~20 minutes).
-
-## 🔧 Troubleshooting
+## 🚨 Troubleshooting
 
 ### Common Issues
 
-**1. Google Calendar Connection Failed**
-- Verify service account JSON file exists
-- Check calendar sharing permissions
-- Ensure Calendar API is enabled
+**Database Connection Failed**
+- Verify database credentials in `.env`
+- Check network connectivity to WordPress server
+- Ensure database user has read permissions
 
-**2. Eufy Device Not Found**
-- Confirm device serial number in `.env`
-- Check Eufy account credentials
-- Verify device is online in Eufy app
+**No Appointments Found**
+- Check Amelia table prefix in configuration
+- Verify appointments exist with status 'approved' or 'pending'
+- Check timezone settings
 
-**3. Email Delivery Issues**
-- Use Gmail App Password, not regular password
-- Enable 2-Factor Authentication
-- Check spam/junk folders
+**Email Not Sending**
+- Verify Gmail app password (not regular password)
+- Check SMTP settings and firewall
+- Review email service logs
 
-**4. Events Not Processing**
-- Verify calendar poll interval settings
-- Check event validation logic
-- Review application logs
+**Door Not Responding**
+- Verify Eufy credentials and device serial
+- Check device connectivity and battery
+- Review Eufy service logs
 
-### Debug Mode
-
-Enable detailed logging:
-```bash
-LOG_LEVEL=debug npm start
-```
-
-View logs in real-time:
+### Logs
+Check logs for detailed error information:
 ```bash
 tail -f logs/automation.log
 ```
 
-## 🛣️ Roadmap
+## 🔒 Security Considerations
 
-### Planned Features
-- 📱 **Admin Dashboard** - Web interface for real-time monitoring
-- 📲 **SMS Notifications** - Twilio integration for SMS alerts  
-- 🏢 **Multi-Location Support** - Manage multiple smart locks
-- 🔐 **Enhanced Security** - QR codes, OTP access, and encrypted links
-- 📊 **Analytics** - Usage reports and booking analytics
-- 🔧 **Plugin System** - Extensible architecture for custom integrations
+- Database credentials are stored securely in environment variables
+- Email passwords use app-specific passwords
+- Door codes are configurable and can be rotated
+- All activities are logged for audit purposes
+- API endpoints should be secured in production
+
+## 📝 License
+
+MIT License - see LICENSE file for details
 
 ## 🤝 Contributing
 
-We welcome contributions! Please see our contributing guidelines for details.
-
-## 📄 License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests if applicable
+5. Submit a pull request
 
 ## 🆘 Support
 
-For support, please:
-1. Check the troubleshooting section above
-2. Review the application logs
-3. Open an issue on GitHub
-4. Contact the development team
+For issues and questions:
+1. Check the troubleshooting section
+2. Review logs for error details
+3. Open an issue with detailed information
+4. Include system configuration (without sensitive data)
 
 ---
 
-**Built with ❤️ for seamless, secure, automated access control.**
+**Note**: This system is designed for Euphorium wellness center but can be adapted for any business using WordPress Amelia for bookings and Eufy smart locks for access control.
